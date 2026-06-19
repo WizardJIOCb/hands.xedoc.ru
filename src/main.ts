@@ -119,6 +119,21 @@ type HeadSample = {
   t: number
 }
 
+type FaceTriangle = readonly [number, number, number]
+
+type Point2D = {
+  x: number
+  y: number
+}
+
+type FaceMaskLayer = {
+  image: HTMLImageElement
+  landmarks: NormalizedLandmark[]
+  triangles: FaceTriangle[]
+  width: number
+  height: number
+}
+
 const tasksVersion = '0.10.35'
 const wasmPath = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${tasksVersion}/wasm`
 const gestureModelPath =
@@ -202,6 +217,7 @@ const gestureDefinitions: GestureDefinition[] = [
 ]
 
 const gestureKeys = new Set(gestureDefinitions.map((gesture) => gesture.key))
+const faceTriangles = buildFaceTriangles(FaceLandmarker.FACE_LANDMARKS_TESSELATION)
 
 const presets: Record<
   PresetId,
@@ -634,13 +650,15 @@ const context: CanvasRenderingContext2D = canvasContext
 const drawingUtils = new DrawingUtils(context)
 let recognizer: GestureRecognizer | null = null
 let faceLandmarker: FaceLandmarker | null = null
+let maskFaceLandmarker: FaceLandmarker | null = null
+let modelBootPromise: Promise<void> | null = null
 let stream: MediaStream | null = null
 let isRunning = false
 let lastVideoTime = -1
 let currentPreset: PresetId = readPreset()
 let mirrorMode = localStorage.getItem('xedoc-hands-mirror') !== 'off'
 let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
-let maskImage: HTMLImageElement | null = null
+let maskLayer: FaceMaskLayer | null = null
 let maskImageUrl: string | null = null
 let lastEvent: GestureEvent | null = null
 let eventSequence = 0
@@ -726,10 +744,20 @@ webhookToggle.checked = savedWebhookEnabled
 webhookState.textContent = savedWebhookEnabled ? 'Webhook включен' : 'Локальный лог активен'
 
 async function bootModel() {
+  if (modelBootPromise) {
+    await modelBootPromise
+    return
+  }
+
+  modelBootPromise = bootModels()
+  await modelBootPromise
+}
+
+async function bootModels() {
   try {
     const vision = await FilesetResolver.forVisionTasks(wasmPath)
 
-    const [handTask, faceTask] = await Promise.all([
+    const [handTask, faceTask, maskFaceTask] = await Promise.all([
       GestureRecognizer.createFromOptions(vision, {
         baseOptions: {
           modelAssetPath: gestureModelPath,
@@ -754,15 +782,28 @@ async function bootModel() {
         minFacePresenceConfidence: 0.55,
         minTrackingConfidence: 0.55,
       }),
+      FaceLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: faceModelPath,
+          delegate: 'GPU',
+        },
+        runningMode: 'IMAGE',
+        numFaces: 1,
+        minFaceDetectionConfidence: 0.55,
+        minFacePresenceConfidence: 0.55,
+        minTrackingConfidence: 0.55,
+      }),
     ])
 
     recognizer = handTask
     faceLandmarker = faceTask
+    maskFaceLandmarker = maskFaceTask
 
     setModelState('ready', 'Готовы')
     setFaceState('idle', 'Нет лица')
   } catch (error) {
     console.error(error)
+    modelBootPromise = null
     setModelState('error', 'Ошибка')
     setFaceState('error', 'Ошибка')
   }
@@ -1073,7 +1114,7 @@ function processFaceResult(result: FaceLandmarkerResult, now: number, detected: 
 
   setFaceState('ready', 'В кадре')
 
-  if (maskEnabled && maskImage) {
+  if (maskEnabled && maskLayer) {
     drawFaceMask(face)
   } else {
     drawFace(face)
@@ -1195,57 +1236,68 @@ function drawFace(landmarks: NormalizedLandmark[]) {
 }
 
 function drawFaceMask(landmarks: NormalizedLandmark[]) {
-  if (!maskImage?.complete || !maskImage.naturalWidth || !maskImage.naturalHeight) {
+  const layer = maskLayer
+
+  if (!layer) {
     return
-  }
-
-  const leftEye = landmarks[33]
-  const rightEye = landmarks[263]
-
-  if (!leftEye || !rightEye) {
-    return
-  }
-
-  const bounds = landmarks.reduce(
-    (acc, landmark) => ({
-      minX: Math.min(acc.minX, landmark.x),
-      maxX: Math.max(acc.maxX, landmark.x),
-      minY: Math.min(acc.minY, landmark.y),
-      maxY: Math.max(acc.maxY, landmark.y),
-    }),
-    { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity },
-  )
-  const faceWidth = (bounds.maxX - bounds.minX) * canvas.width
-  const faceHeight = (bounds.maxY - bounds.minY) * canvas.height
-
-  if (!Number.isFinite(faceWidth) || !Number.isFinite(faceHeight) || faceWidth <= 0 || faceHeight <= 0) {
-    return
-  }
-
-  const centerX = ((bounds.minX + bounds.maxX) / 2) * canvas.width
-  const centerY = ((bounds.minY + bounds.maxY) / 2) * canvas.height
-  const angle = Math.atan2(
-    (rightEye.y - leftEye.y) * canvas.height,
-    (rightEye.x - leftEye.x) * canvas.width,
-  )
-  const imageRatio = maskImage.naturalWidth / maskImage.naturalHeight
-  let drawWidth = faceWidth * 1.18
-  let drawHeight = faceHeight * 1.2
-  const targetRatio = drawWidth / drawHeight
-
-  if (imageRatio > targetRatio) {
-    drawWidth = drawHeight * imageRatio
-  } else {
-    drawHeight = drawWidth / imageRatio
   }
 
   context.save()
-  context.translate(centerX, centerY)
-  context.rotate(angle)
-  context.globalAlpha = 0.96
   context.imageSmoothingEnabled = true
   context.imageSmoothingQuality = 'high'
-  context.drawImage(maskImage, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight)
+  context.globalAlpha = 0.97
+
+  for (const triangle of layer.triangles) {
+    const source = triangle.map((index) => layer.landmarks[index])
+    const target = triangle.map((index) => landmarks[index])
+
+    if (!source.every(Boolean) || !target.every(Boolean)) {
+      continue
+    }
+
+    drawWarpedTriangle(
+      layer.image,
+      source.map((landmark) => landmarkToSourcePoint(landmark, layer)),
+      target.map(landmarkToCanvasPoint),
+    )
+  }
+
+  context.restore()
+}
+
+function drawWarpedTriangle(image: HTMLImageElement, source: Point2D[], target: Point2D[]) {
+  const [s0, s1, s2] = source
+  const [t0, t1, t2] = target
+  const determinant = s0.x * (s1.y - s2.y) + s1.x * (s2.y - s0.y) + s2.x * (s0.y - s1.y)
+
+  if (Math.abs(determinant) < 0.001) {
+    return
+  }
+
+  const a = (t0.x * (s1.y - s2.y) + t1.x * (s2.y - s0.y) + t2.x * (s0.y - s1.y)) / determinant
+  const b = (t0.y * (s1.y - s2.y) + t1.y * (s2.y - s0.y) + t2.y * (s0.y - s1.y)) / determinant
+  const c = (t0.x * (s2.x - s1.x) + t1.x * (s0.x - s2.x) + t2.x * (s1.x - s0.x)) / determinant
+  const d = (t0.y * (s2.x - s1.x) + t1.y * (s0.x - s2.x) + t2.y * (s1.x - s0.x)) / determinant
+  const e =
+    (t0.x * (s1.x * s2.y - s2.x * s1.y) +
+      t1.x * (s2.x * s0.y - s0.x * s2.y) +
+      t2.x * (s0.x * s1.y - s1.x * s0.y)) /
+    determinant
+  const f =
+    (t0.y * (s1.x * s2.y - s2.x * s1.y) +
+      t1.y * (s2.x * s0.y - s0.x * s2.y) +
+      t2.y * (s0.x * s1.y - s1.x * s0.y)) /
+    determinant
+
+  context.save()
+  context.beginPath()
+  context.moveTo(t0.x, t0.y)
+  context.lineTo(t1.x, t1.y)
+  context.lineTo(t2.x, t2.y)
+  context.closePath()
+  context.clip()
+  context.transform(a, b, c, d, e, f)
+  context.drawImage(image, 0, 0)
   context.restore()
 }
 
@@ -1493,14 +1545,7 @@ function loadMaskFile(file: File) {
   const nextImage = new Image()
 
   nextImage.addEventListener('load', () => {
-    if (maskImageUrl) {
-      URL.revokeObjectURL(maskImageUrl)
-    }
-
-    maskImageUrl = nextUrl
-    maskImage = nextImage
-    maskPreview.src = nextUrl
-    setMaskEnabled(true)
+    void prepareMaskLayer(nextImage, nextUrl)
   })
 
   nextImage.addEventListener('error', () => {
@@ -1511,6 +1556,44 @@ function loadMaskFile(file: File) {
   nextImage.src = nextUrl
 }
 
+async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string) {
+  maskState.textContent = 'Ищем лицо'
+
+  if (!maskFaceLandmarker) {
+    await bootModel()
+  }
+
+  if (!maskFaceLandmarker) {
+    URL.revokeObjectURL(imageUrl)
+    maskState.textContent = 'Модель не готова'
+    return
+  }
+
+  const result = maskFaceLandmarker.detect(image)
+  const landmarks = result.faceLandmarks[0]
+
+  if (!landmarks) {
+    URL.revokeObjectURL(imageUrl)
+    maskState.textContent = 'Лицо не найдено'
+    return
+  }
+
+  if (maskImageUrl) {
+    URL.revokeObjectURL(maskImageUrl)
+  }
+
+  maskLayer = {
+    image,
+    landmarks,
+    triangles: faceTriangles,
+    width: image.naturalWidth,
+    height: image.naturalHeight,
+  }
+  maskImageUrl = imageUrl
+  maskPreview.src = imageUrl
+  setMaskEnabled(true)
+}
+
 function setMaskEnabled(next: boolean) {
   maskEnabled = next
   localStorage.setItem('xedoc-hands-mask-enabled', String(next))
@@ -1518,7 +1601,7 @@ function setMaskEnabled(next: boolean) {
 }
 
 function updateMaskState() {
-  const hasImage = Boolean(maskImage && maskImageUrl)
+  const hasImage = Boolean(maskLayer && maskImageUrl)
 
   maskToggle.disabled = !hasImage
   maskToggle.checked = hasImage && maskEnabled
@@ -1588,6 +1671,64 @@ function isGestureKey(value: string): value is GestureKey {
 
 function gestureTitleFor(gesture: GestureKey) {
   return gestureDefinitions.find((definition) => definition.key === gesture)?.title ?? gesture
+}
+
+function buildFaceTriangles(connections: readonly { start: number; end: number }[]): FaceTriangle[] {
+  const adjacency = new Map<number, Set<number>>()
+  const addEdge = (start: number, end: number) => {
+    if (!adjacency.has(start)) {
+      adjacency.set(start, new Set())
+    }
+
+    adjacency.get(start)!.add(end)
+  }
+
+  for (const connection of connections) {
+    addEdge(connection.start, connection.end)
+    addEdge(connection.end, connection.start)
+  }
+
+  const seen = new Set<string>()
+  const triangles: FaceTriangle[] = []
+
+  for (const [start, neighbors] of adjacency) {
+    const list = [...neighbors]
+
+    for (let firstIndex = 0; firstIndex < list.length; firstIndex += 1) {
+      for (let secondIndex = firstIndex + 1; secondIndex < list.length; secondIndex += 1) {
+        const first = list[firstIndex]
+        const second = list[secondIndex]
+
+        if (!adjacency.get(first)?.has(second)) {
+          continue
+        }
+
+        const ordered = [start, first, second].sort((left, right) => left - right)
+        const key = ordered.join(':')
+
+        if (!seen.has(key)) {
+          seen.add(key)
+          triangles.push([ordered[0], ordered[1], ordered[2]])
+        }
+      }
+    }
+  }
+
+  return triangles
+}
+
+function landmarkToCanvasPoint(landmark: NormalizedLandmark): Point2D {
+  return {
+    x: landmark.x * canvas.width,
+    y: landmark.y * canvas.height,
+  }
+}
+
+function landmarkToSourcePoint(landmark: NormalizedLandmark, layer: FaceMaskLayer): Point2D {
+  return {
+    x: landmark.x * layer.width,
+    y: landmark.y * layer.height,
+  }
 }
 
 function analyzeHand(landmarks: NormalizedLandmark[]) {
