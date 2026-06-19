@@ -670,6 +670,7 @@ let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
 let maskLayer: FaceMaskLayer | null = null
 let maskImageUrl: string | null = null
 let previousMaskFaceLandmarks: NormalizedLandmark[] | null = null
+let displayedMaskFaceLandmarks: NormalizedLandmark[] | null = null
 let previousMaskFaceAt = 0
 let lastEvent: GestureEvent | null = null
 let eventSequence = 0
@@ -1121,6 +1122,7 @@ function processFaceResult(result: FaceLandmarkerResult, now: number, detected: 
     setFaceState('idle', 'Нет лица')
     headSamples = []
     previousMaskFaceLandmarks = null
+    displayedMaskFaceLandmarks = null
     previousMaskFaceAt = 0
     return
   }
@@ -1131,6 +1133,7 @@ function processFaceResult(result: FaceLandmarkerResult, now: number, detected: 
     drawFaceMask(compensateMaskLag(face, now))
   } else {
     previousMaskFaceLandmarks = cloneLandmarks(face)
+    displayedMaskFaceLandmarks = cloneLandmarks(face)
     previousMaskFaceAt = now
     drawFace(face)
   }
@@ -1290,29 +1293,64 @@ function drawFaceMask(landmarks: NormalizedLandmark[]) {
 }
 
 function compensateMaskLag(landmarks: NormalizedLandmark[], now: number) {
-  const previous = previousMaskFaceLandmarks
+  const previousRaw = previousMaskFaceLandmarks
+  const previousDisplayed = displayedMaskFaceLandmarks
   const previousAt = previousMaskFaceAt
-  previousMaskFaceLandmarks = cloneLandmarks(landmarks)
+  const current = cloneLandmarks(landmarks)
+  previousMaskFaceLandmarks = current
   previousMaskFaceAt = now
 
-  if (!previous || previous.length !== landmarks.length || !previousAt) {
-    return landmarks
+  if (!previousRaw || !previousDisplayed || previousRaw.length !== landmarks.length || !previousAt) {
+    displayedMaskFaceLandmarks = current
+    return current
   }
 
   const dt = clamp(now - previousAt, 8, 80)
-  const leadMs = clamp(dt * 0.85 + 12, 18, 54)
-  const factor = clamp(leadMs / dt, 0.28, 1.22)
+  const leadFactor = clamp(0.18 + dt / 240, 0.22, 0.48)
+  const maxStep = 0.035
+  let motion = 0
 
-  return landmarks.map((landmark, index) => {
-    const last = previous[index]
+  for (let index = 0; index < landmarks.length; index += 1) {
+    motion += Math.hypot(landmarks[index].x - previousRaw[index].x, landmarks[index].y - previousRaw[index].y)
+  }
+
+  motion /= landmarks.length
+
+  const smoothing = motion > 0.012 ? 0.72 : 0.46
+
+  const stabilized = landmarks.map((landmark, index) => {
+    const lastRaw = previousRaw[index]
+    const lastShown = previousDisplayed[index]
+    const predicted = {
+      x: landmark.x + (landmark.x - lastRaw.x) * leadFactor,
+      y: landmark.y + (landmark.y - lastRaw.y) * leadFactor,
+      z: landmark.z + (landmark.z - lastRaw.z) * leadFactor,
+    }
+    const next = {
+      x: lastShown.x + (predicted.x - lastShown.x) * smoothing,
+      y: lastShown.y + (predicted.y - lastShown.y) * smoothing,
+      z: lastShown.z + (predicted.z - lastShown.z) * smoothing,
+    }
+    const dx = next.x - lastShown.x
+    const dy = next.y - lastShown.y
+    const length = Math.hypot(dx, dy)
+
+    if (length > maxStep) {
+      const scale = maxStep / length
+      next.x = lastShown.x + dx * scale
+      next.y = lastShown.y + dy * scale
+    }
 
     return {
-      x: clamp(landmark.x + (landmark.x - last.x) * factor, -0.08, 1.08),
-      y: clamp(landmark.y + (landmark.y - last.y) * factor, -0.08, 1.08),
-      z: landmark.z + (landmark.z - last.z) * factor,
+      x: clamp(next.x, -0.08, 1.08),
+      y: clamp(next.y, -0.08, 1.08),
+      z: next.z,
       visibility: landmark.visibility,
     }
   })
+
+  displayedMaskFaceLandmarks = cloneLandmarks(stabilized)
+  return stabilized
 }
 
 function drawWarpedTriangle(
