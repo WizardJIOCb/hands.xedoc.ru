@@ -1376,6 +1376,8 @@ function drawFaceMask(landmarks: NormalizedLandmark[]) {
     return
   }
 
+  const maskLandmarks = expandMeshMaskLandmarks(landmarks)
+
   syncMaskCanvases()
   maskRenderContext.clearRect(0, 0, maskRenderCanvas.width, maskRenderCanvas.height)
   maskRenderContext.save()
@@ -1385,7 +1387,7 @@ function drawFaceMask(landmarks: NormalizedLandmark[]) {
 
   for (const triangle of layer.triangles) {
     const source = triangle.map((index) => layer.landmarks[index])
-    const target = triangle.map((index) => landmarks[index])
+    const target = triangle.map((index) => maskLandmarks[index])
 
     if (!source.every(Boolean) || !target.every(Boolean)) {
       continue
@@ -1400,12 +1402,40 @@ function drawFaceMask(landmarks: NormalizedLandmark[]) {
   }
 
   maskRenderContext.restore()
-  applySoftFaceMask(landmarks)
+  applySoftFaceMask(maskLandmarks)
 
   context.save()
   context.globalAlpha = 0.96
   context.drawImage(maskRenderCanvas, 0, 0)
   context.restore()
+}
+
+function expandMeshMaskLandmarks(landmarks: NormalizedLandmark[]) {
+  const pose = getHeadPose(landmarks)
+  const yaw = pose?.yaw ?? 0
+  const pitch = pose?.pitch ?? 0
+  const turn = clamp((Math.abs(yaw) - 0.08) / 0.36, 0, 1)
+
+  if (turn <= 0.01) {
+    return landmarks
+  }
+
+  const center = normalizedFaceCenter(landmarks)
+  const side = Math.sign(yaw)
+  const xScale = 1 + turn * 0.18
+  const yScale = 1 + turn * 0.07 + clamp(Math.abs(pitch) / 0.35, 0, 1) * 0.03
+  const globalBias = yaw * turn * 0.025
+
+  return landmarks.map((landmark) => {
+    const sideAmount = side ? clamp(((landmark.x - center.x) * side) / 0.18, 0, 1) : 0
+    const frontPush = side * turn * sideAmount * 0.028
+
+    return {
+      ...landmark,
+      x: clamp(center.x + globalBias + (landmark.x - center.x) * xScale + frontPush, -0.12, 1.12),
+      y: clamp(center.y + (landmark.y - center.y) * yScale, -0.12, 1.12),
+    }
+  })
 }
 
 function compensateMaskLag(landmarks: NormalizedLandmark[], now: number) {
@@ -2322,6 +2352,27 @@ function expandTriangle(points: Point2D[], pixels: number) {
 }
 
 function polygonCenter(points: Point2D[]): Point2D {
+  const sum = points.reduce(
+    (acc, point) => ({
+      x: acc.x + point.x,
+      y: acc.y + point.y,
+    }),
+    { x: 0, y: 0 },
+  )
+
+  return {
+    x: sum.x / points.length,
+    y: sum.y / points.length,
+  }
+}
+
+function normalizedFaceCenter(landmarks: NormalizedLandmark[]) {
+  const points = faceOvalIndices.map((index) => landmarks[index]).filter(Boolean)
+
+  if (!points.length) {
+    return { x: 0.5, y: 0.5 }
+  }
+
   const sum = points.reduce(
     (acc, point) => ({
       x: acc.x + point.x,
