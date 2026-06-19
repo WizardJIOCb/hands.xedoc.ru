@@ -1671,56 +1671,12 @@ function applySoftFaceMask(landmarks: NormalizedLandmark[]) {
   drawFaceOvalPath(maskAlphaContext, landmarks, 1.05)
   maskAlphaContext.fillStyle = '#fff'
   maskAlphaContext.fill()
-  trimBackProfileFeather(maskAlphaContext, landmarks)
   maskAlphaContext.restore()
 
   maskRenderContext.save()
   maskRenderContext.globalCompositeOperation = 'destination-in'
   maskRenderContext.drawImage(maskAlphaCanvas, 0, 0)
   maskRenderContext.restore()
-}
-
-function trimBackProfileFeather(targetContext: CanvasRenderingContext2D, landmarks: NormalizedLandmark[]) {
-  const pose = getHeadPose(landmarks)
-  const yaw = pose?.yaw ?? 0
-  const profile = clamp((Math.abs(yaw) - 0.2) / 0.24, 0, 1)
-
-  if (profile <= 0.01) {
-    return
-  }
-
-  const points = faceOvalIndices.map((index) => landmarks[index]).filter(Boolean).map(landmarkToCanvasPoint)
-
-  if (points.length < 3) {
-    return
-  }
-
-  const xs = points.map((point) => point.x)
-  const ys = points.map((point) => point.y)
-  const side = Math.sign(yaw) || 1
-  const backEdge = side > 0 ? Math.min(...xs) : Math.max(...xs)
-  const top = Math.min(...ys) - 18
-  const bottom = Math.max(...ys) + 22
-  const width = 18 + profile * 36
-
-  targetContext.save()
-  targetContext.globalCompositeOperation = 'destination-out'
-
-  if (side > 0) {
-    const gradient = targetContext.createLinearGradient(backEdge - 10, 0, backEdge + width, 0)
-    gradient.addColorStop(0, `rgba(0, 0, 0, ${0.88 * profile})`)
-    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)')
-    targetContext.fillStyle = gradient
-    targetContext.fillRect(0, top, backEdge + width, bottom - top)
-  } else {
-    const gradient = targetContext.createLinearGradient(backEdge + 10, 0, backEdge - width, 0)
-    gradient.addColorStop(0, `rgba(0, 0, 0, ${0.88 * profile})`)
-    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)')
-    targetContext.fillStyle = gradient
-    targetContext.fillRect(backEdge - width, top, maskAlphaCanvas.width - backEdge + width, bottom - top)
-  }
-
-  targetContext.restore()
 }
 
 function drawFaceOvalPath(targetContext: CanvasRenderingContext2D, landmarks: NormalizedLandmark[], scale: number) {
