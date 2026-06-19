@@ -1451,7 +1451,7 @@ function drawFaceMask(landmarks: NormalizedLandmark[]) {
   }
 
   maskRenderContext.restore()
-  applyRenderedMaskFeather()
+  applyRenderedMaskFeather(landmarks)
   applySoftFaceMask(landmarks)
 
   context.save()
@@ -1492,7 +1492,7 @@ function averageTriangleZ(landmarks: NormalizedLandmark[]) {
   return landmarks.reduce((sum, landmark) => sum + (landmark.z ?? 0), 0) / landmarks.length
 }
 
-function applyRenderedMaskFeather() {
+function applyRenderedMaskFeather(landmarks: NormalizedLandmark[]) {
   const blur = Math.round(maskEdgeFeather)
 
   if (blur <= 0) {
@@ -1513,7 +1513,11 @@ function applyRenderedMaskFeather() {
   ]
 
   maskAlphaContext.clearRect(0, 0, maskAlphaCanvas.width, maskAlphaCanvas.height)
-  maskAlphaContext.drawImage(maskRenderCanvas, 0, 0)
+  maskAlphaContext.save()
+  drawFaceOvalPath(maskAlphaContext, landmarks, 1.08)
+  maskAlphaContext.fillStyle = '#fff'
+  maskAlphaContext.fill()
+  maskAlphaContext.restore()
 
   maskFeatherContext.clearRect(0, 0, maskFeatherCanvas.width, maskFeatherCanvas.height)
   maskFeatherContext.save()
@@ -1534,7 +1538,7 @@ function applyRenderedMaskFeather() {
 
   maskRenderContext.save()
   maskRenderContext.globalCompositeOperation = 'destination-in'
-  // Applying the same inner feather twice makes the outer seam fade close to zero alpha.
+  // Feather only the outer face oval, so eyes, mouth and mesh texture details stay solid.
   maskRenderContext.drawImage(maskAlphaCanvas, 0, 0)
   maskRenderContext.drawImage(maskAlphaCanvas, 0, 0)
   maskRenderContext.restore()
