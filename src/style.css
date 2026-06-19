@@ -605,15 +605,16 @@ svg {
 
 .gesture-grid {
   display: grid;
-  grid-template-columns: repeat(11, minmax(112px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(152px, 1fr));
   gap: 8px;
 }
 
 .gesture-tile {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
+  align-items: start;
   gap: 9px;
-  min-height: 104px;
+  min-height: 112px;
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -651,11 +652,13 @@ svg {
   color: var(--ink);
   font-size: 13px;
   line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .gesture-tile em {
   display: block;
   font-style: normal;
+  overflow-wrap: anywhere;
 }
 
 .event-log {
