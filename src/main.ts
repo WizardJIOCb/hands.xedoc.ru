@@ -51,7 +51,6 @@ import {
 } from 'lucide'
 
 type PresetId = 'browser' | 'stream' | 'agent' | 'graph' | 'home'
-type MaskMode = 'mesh' | 'blend'
 
 type GestureKey =
   | 'Pointing_Up'
@@ -560,10 +559,6 @@ app.innerHTML = `
             <input id="maskFile" class="file-input" type="file" accept="image/*" />
             <p class="mask-state" id="maskState">Не выбрана</p>
           </div>
-          <div class="mask-mode" id="maskModeTabs" aria-label="Режим маски">
-            <button class="mask-mode-button" data-mask-mode="mesh" type="button">Mesh</button>
-            <button class="mask-mode-button" data-mask-mode="blend" type="button">Blend</button>
-          </div>
           <img class="mask-preview" id="maskPreview" alt="" />
         </section>
 
@@ -641,7 +636,6 @@ const maskToggle = getElement<HTMLInputElement>('maskToggle')
 const maskFile = getElement<HTMLInputElement>('maskFile')
 const maskState = getElement<HTMLElement>('maskState')
 const maskPreview = getElement<HTMLImageElement>('maskPreview')
-const maskModeTabs = getElement<HTMLDivElement>('maskModeTabs')
 const webhookToggle = getElement<HTMLInputElement>('webhookToggle')
 const webhookUrl = getElement<HTMLInputElement>('webhookUrl')
 const webhookState = getElement<HTMLElement>('webhookState')
@@ -662,8 +656,6 @@ const maskRenderCanvas = document.createElement('canvas')
 const maskRenderContext = getCanvasContext(maskRenderCanvas)
 const maskAlphaCanvas = document.createElement('canvas')
 const maskAlphaContext = getCanvasContext(maskAlphaCanvas)
-const videoSampleCanvas = document.createElement('canvas')
-const videoSampleContext = getCanvasContext(videoSampleCanvas)
 
 let recognizer: GestureRecognizer | null = null
 let faceLandmarker: FaceLandmarker | null = null
@@ -675,9 +667,10 @@ let lastVideoTime = -1
 let currentPreset: PresetId = readPreset()
 let mirrorMode = localStorage.getItem('xedoc-hands-mirror') !== 'off'
 let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
-let maskMode: MaskMode = readMaskMode()
 let maskLayer: FaceMaskLayer | null = null
 let maskImageUrl: string | null = null
+let previousMaskFaceLandmarks: NormalizedLandmark[] | null = null
+let previousMaskFaceAt = 0
 let lastEvent: GestureEvent | null = null
 let eventSequence = 0
 let frameCount = 0
@@ -693,7 +686,6 @@ const cooldowns = new Map<GestureKey, number>()
 
 renderPresetTabs()
 renderGestureGrid()
-renderMaskModeTabs()
 refreshIcons()
 setMirrorMode(mirrorMode)
 setMaskEnabled(maskEnabled)
@@ -730,12 +722,6 @@ maskFile.addEventListener('change', () => {
   if (file) {
     loadMaskFile(file)
   }
-})
-
-maskModeTabs.querySelectorAll<HTMLButtonElement>('.mask-mode-button').forEach((button) => {
-  button.addEventListener('click', () => {
-    setMaskMode(button.dataset.maskMode as MaskMode)
-  })
 })
 
 copyButton.addEventListener('click', () => {
@@ -1134,14 +1120,18 @@ function processFaceResult(result: FaceLandmarkerResult, now: number, detected: 
   if (!face) {
     setFaceState('idle', 'Нет лица')
     headSamples = []
+    previousMaskFaceLandmarks = null
+    previousMaskFaceAt = 0
     return
   }
 
   setFaceState('ready', 'В кадре')
 
   if (maskEnabled && maskLayer) {
-    drawFaceMask(face)
+    drawFaceMask(compensateMaskLag(face, now))
   } else {
+    previousMaskFaceLandmarks = cloneLandmarks(face)
+    previousMaskFaceAt = now
     drawFace(face)
   }
 
@@ -1293,14 +1283,36 @@ function drawFaceMask(landmarks: NormalizedLandmark[]) {
   maskRenderContext.restore()
   applySoftFaceMask(landmarks)
 
-  if (maskMode === 'blend') {
-    blendMaskWithCamera(landmarks)
-  }
-
   context.save()
-  context.globalAlpha = maskMode === 'blend' ? 0.92 : 0.96
+  context.globalAlpha = 0.96
   context.drawImage(maskRenderCanvas, 0, 0)
   context.restore()
+}
+
+function compensateMaskLag(landmarks: NormalizedLandmark[], now: number) {
+  const previous = previousMaskFaceLandmarks
+  const previousAt = previousMaskFaceAt
+  previousMaskFaceLandmarks = cloneLandmarks(landmarks)
+  previousMaskFaceAt = now
+
+  if (!previous || previous.length !== landmarks.length || !previousAt) {
+    return landmarks
+  }
+
+  const dt = clamp(now - previousAt, 8, 80)
+  const leadMs = clamp(dt * 0.85 + 12, 18, 54)
+  const factor = clamp(leadMs / dt, 0.28, 1.22)
+
+  return landmarks.map((landmark, index) => {
+    const last = previous[index]
+
+    return {
+      x: clamp(landmark.x + (landmark.x - last.x) * factor, -0.08, 1.08),
+      y: clamp(landmark.y + (landmark.y - last.y) * factor, -0.08, 1.08),
+      z: landmark.z + (landmark.z - last.z) * factor,
+      visibility: landmark.visibility,
+    }
+  })
 }
 
 function drawWarpedTriangle(
@@ -1364,61 +1376,6 @@ function applySoftFaceMask(landmarks: NormalizedLandmark[]) {
   maskRenderContext.restore()
 }
 
-function blendMaskWithCamera(landmarks: NormalizedLandmark[]) {
-  syncVideoSampleCanvas()
-  videoSampleContext.drawImage(video, 0, 0, videoSampleCanvas.width, videoSampleCanvas.height)
-
-  const bounds = facePixelBounds(landmarks, 18)
-  const width = bounds.maxX - bounds.minX
-  const height = bounds.maxY - bounds.minY
-
-  if (width <= 1 || height <= 1) {
-    return
-  }
-
-  const maskImageData = maskRenderContext.getImageData(bounds.minX, bounds.minY, width, height)
-  const alphaImageData = maskAlphaContext.getImageData(bounds.minX, bounds.minY, width, height)
-  const videoImageData = videoSampleContext.getImageData(bounds.minX, bounds.minY, width, height)
-  const sourceAverage = averageColor(maskImageData, alphaImageData, 36, 4)
-  const targetAverage = averageColor(videoImageData, alphaImageData, 36, 4)
-
-  if (!sourceAverage || !targetAverage) {
-    return
-  }
-
-  const gainR = clamp(targetAverage.r / Math.max(sourceAverage.r, 1), 0.72, 1.34)
-  const gainG = clamp(targetAverage.g / Math.max(sourceAverage.g, 1), 0.72, 1.34)
-  const gainB = clamp(targetAverage.b / Math.max(sourceAverage.b, 1), 0.72, 1.34)
-  const shiftR = (targetAverage.r - sourceAverage.r) * 0.18
-  const shiftG = (targetAverage.g - sourceAverage.g) * 0.18
-  const shiftB = (targetAverage.b - sourceAverage.b) * 0.18
-  const maskData = maskImageData.data
-  const alphaData = alphaImageData.data
-  const videoData = videoImageData.data
-
-  for (let index = 0; index < maskData.length; index += 4) {
-    const alpha = alphaData[index + 3] / 255
-
-    if (alpha <= 0.01) {
-      maskData[index + 3] = 0
-      continue
-    }
-
-    const sourceR = clamp(maskData[index] * gainR + shiftR, 0, 255)
-    const sourceG = clamp(maskData[index + 1] * gainG + shiftG, 0, 255)
-    const sourceB = clamp(maskData[index + 2] * gainB + shiftB, 0, 255)
-    const centerWeight = smoothstep(0.16, 0.92, alpha)
-    const sourceMix = 0.44 + centerWeight * 0.34
-
-    maskData[index] = sourceR * sourceMix + videoData[index] * (1 - sourceMix)
-    maskData[index + 1] = sourceG * sourceMix + videoData[index + 1] * (1 - sourceMix)
-    maskData[index + 2] = sourceB * sourceMix + videoData[index + 2] * (1 - sourceMix)
-    maskData[index + 3] = clamp(alpha * 250, 0, 255)
-  }
-
-  maskRenderContext.putImageData(maskImageData, bounds.minX, bounds.minY)
-}
-
 function drawFaceOvalPath(targetContext: CanvasRenderingContext2D, landmarks: NormalizedLandmark[], scale: number) {
   const points = faceOvalIndices.map((index) => landmarks[index]).filter(Boolean).map(landmarkToCanvasPoint)
 
@@ -1451,13 +1408,6 @@ function syncMaskCanvases() {
     maskRenderCanvas.height = canvas.height
     maskAlphaCanvas.width = canvas.width
     maskAlphaCanvas.height = canvas.height
-  }
-}
-
-function syncVideoSampleCanvas() {
-  if (videoSampleCanvas.width !== canvas.width || videoSampleCanvas.height !== canvas.height) {
-    videoSampleCanvas.width = canvas.width
-    videoSampleCanvas.height = canvas.height
   }
 }
 
@@ -1760,19 +1710,6 @@ function setMaskEnabled(next: boolean) {
   updateMaskState()
 }
 
-function setMaskMode(next: MaskMode) {
-  maskMode = next
-  localStorage.setItem('xedoc-hands-mask-mode', next)
-  renderMaskModeTabs()
-  updateMaskState()
-}
-
-function renderMaskModeTabs() {
-  maskModeTabs.querySelectorAll<HTMLButtonElement>('.mask-mode-button').forEach((button) => {
-    button.classList.toggle('is-active', button.dataset.maskMode === maskMode)
-  })
-}
-
 function updateMaskState() {
   const hasImage = Boolean(maskLayer && maskImageUrl)
 
@@ -1785,8 +1722,7 @@ function updateMaskState() {
     return
   }
 
-  const modeTitle = maskMode === 'blend' ? 'Blend' : 'Mesh'
-  maskState.textContent = maskEnabled ? `${modeTitle} включен` : `${modeTitle} выключен`
+  maskState.textContent = maskEnabled ? 'Включена' : 'Выключена'
 }
 
 function setMirrorMode(next: boolean) {
@@ -1823,10 +1759,6 @@ function updateFps(now: number) {
 function readPreset(): PresetId {
   const saved = localStorage.getItem('xedoc-hands-preset')
   return saved && saved in presets ? (saved as PresetId) : 'browser'
-}
-
-function readMaskMode(): MaskMode {
-  return localStorage.getItem('xedoc-hands-mask-mode') === 'blend' ? 'blend' : 'mesh'
 }
 
 function getElement<T extends HTMLElement>(id: string) {
@@ -1919,51 +1851,6 @@ function landmarkToSourcePoint(landmark: NormalizedLandmark, layer: FaceMaskLaye
   }
 }
 
-function facePixelBounds(landmarks: NormalizedLandmark[], padding: number) {
-  const points = faceOvalIndices.map((index) => landmarks[index]).filter(Boolean).map(landmarkToCanvasPoint)
-  const minX = Math.max(0, Math.floor(Math.min(...points.map((point) => point.x)) - padding))
-  const maxX = Math.min(canvas.width, Math.ceil(Math.max(...points.map((point) => point.x)) + padding))
-  const minY = Math.max(0, Math.floor(Math.min(...points.map((point) => point.y)) - padding))
-  const maxY = Math.min(canvas.height, Math.ceil(Math.max(...points.map((point) => point.y)) + padding))
-
-  return { minX, maxX, minY, maxY }
-}
-
-function averageColor(imageData: ImageData, alphaData: ImageData, alphaThreshold: number, step: number) {
-  let r = 0
-  let g = 0
-  let b = 0
-  let count = 0
-  const width = imageData.width
-  const data = imageData.data
-  const alpha = alphaData.data
-
-  for (let y = 0; y < imageData.height; y += step) {
-    for (let x = 0; x < width; x += step) {
-      const index = (y * width + x) * 4
-
-      if (alpha[index + 3] < alphaThreshold) {
-        continue
-      }
-
-      r += data[index]
-      g += data[index + 1]
-      b += data[index + 2]
-      count += 1
-    }
-  }
-
-  if (!count) {
-    return null
-  }
-
-  return {
-    r: r / count,
-    g: g / count,
-    b: b / count,
-  }
-}
-
 function expandTriangle(points: Point2D[], pixels: number) {
   const center = polygonCenter(points)
 
@@ -2001,9 +1888,8 @@ function scalePointFromCenter(point: Point2D, center: Point2D, scale: number): P
   }
 }
 
-function smoothstep(edge0: number, edge1: number, value: number) {
-  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1)
-  return t * t * (3 - 2 * t)
+function cloneLandmarks(landmarks: NormalizedLandmark[]) {
+  return landmarks.map((landmark) => ({ ...landmark }))
 }
 
 function analyzeHand(landmarks: NormalizedLandmark[]) {

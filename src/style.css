@@ -175,7 +175,6 @@ svg {
 .button,
 .icon-button,
 .file-button,
-.mask-mode-button,
 .preset-tab {
   display: inline-flex;
   min-height: 40px;
@@ -201,7 +200,6 @@ svg {
 .button:hover,
 .icon-button:hover,
 .file-button:hover,
-.mask-mode-button:hover,
 .preset-tab:hover {
   border-color: rgba(15, 159, 110, 0.5);
   transform: translateY(-1px);
@@ -594,28 +592,6 @@ svg {
   margin: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.mask-mode {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.mask-mode-button {
-  min-height: 34px;
-  padding: 0 10px;
-  color: var(--muted);
-  background: var(--surface-2);
-  font-size: 12px;
-  font-weight: 760;
-}
-
-.mask-mode-button.is-active {
-  border-color: rgba(47, 110, 211, 0.45);
-  color: #173e82;
-  background: var(--blue-soft);
 }
 
 .mask-preview {
