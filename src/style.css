@@ -567,6 +567,10 @@ svg {
   overflow-wrap: anywhere;
 }
 
+.mode-state {
+  margin-top: 8px;
+}
+
 .mask-control {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

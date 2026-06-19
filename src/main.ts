@@ -52,6 +52,7 @@ import {
 
 type PresetId = 'browser' | 'stream' | 'agent' | 'graph' | 'home'
 type MaskMode = 'mesh' | 'faceswap'
+type PerformanceMode = 'performance' | 'quality'
 
 type GestureKey =
   | 'Pointing_Up'
@@ -566,6 +567,18 @@ app.innerHTML = `
 
         <section class="panel">
           <div class="panel-head">
+            <h2>Производительность</h2>
+            <span id="performanceTitle">Авто</span>
+          </div>
+          <div class="mask-mode" id="performanceModeTabs" aria-label="Режим производительности">
+            <button class="mask-mode-button" data-performance-mode="performance" type="button">Быстрее</button>
+            <button class="mask-mode-button" data-performance-mode="quality" type="button">Качество</button>
+          </div>
+          <p class="panel-state mode-state" id="performanceModeState">640x480</p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
             <h2>Режим</h2>
             <span id="presetTitle">ПК</span>
           </div>
@@ -673,6 +686,9 @@ const handTrackingToggle = getElement<HTMLInputElement>('handTrackingToggle')
 const handTrackingState = getElement<HTMLElement>('handTrackingState')
 const faceTrackingToggle = getElement<HTMLInputElement>('faceTrackingToggle')
 const faceTrackingState = getElement<HTMLElement>('faceTrackingState')
+const performanceTitle = getElement<HTMLElement>('performanceTitle')
+const performanceModeTabs = getElement<HTMLDivElement>('performanceModeTabs')
+const performanceModeState = getElement<HTMLElement>('performanceModeState')
 const currentGesture = getElement<HTMLElement>('currentGesture')
 const fpsValue = getElement<HTMLElement>('fpsValue')
 const handCount = getElement<HTMLElement>('handCount')
@@ -731,6 +747,7 @@ let currentPreset: PresetId = readPreset()
 let mirrorMode = localStorage.getItem('xedoc-hands-mirror') !== 'off'
 let handTrackingEnabled = localStorage.getItem('xedoc-hands-hand-tracking') !== 'off'
 let faceTrackingEnabled = localStorage.getItem('xedoc-hands-face-tracking') !== 'off'
+let performanceMode: PerformanceMode = readPerformanceMode()
 let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
 let maskMode: MaskMode = readMaskMode()
 let maskStability = readMaskStability()
@@ -760,10 +777,12 @@ const cooldowns = new Map<GestureKey, number>()
 renderPresetTabs()
 renderGestureGrid()
 renderMaskModeTabs()
+renderPerformanceModeTabs()
 refreshIcons()
 setMirrorMode(mirrorMode)
 setHandTrackingEnabled(handTrackingEnabled)
 setFaceTrackingEnabled(faceTrackingEnabled)
+setPerformanceMode(performanceMode)
 setMaskMode(maskMode)
 setMaskStability(maskStability)
 setMaskEnabled(maskEnabled)
@@ -800,6 +819,23 @@ handTrackingToggle.addEventListener('change', () => {
 
 faceTrackingToggle.addEventListener('change', () => {
   setFaceTrackingEnabled(faceTrackingToggle.checked)
+})
+
+performanceModeTabs.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('.mask-mode-button')
+  const mode = button?.dataset.performanceMode
+
+  if (mode !== 'performance' && mode !== 'quality') {
+    return
+  }
+
+  const shouldRestartCamera = isRunning && mode !== performanceMode
+  setPerformanceMode(mode)
+
+  if (shouldRestartCamera) {
+    stopCamera()
+    void startCamera()
+  }
 })
 
 maskModeTabs.addEventListener('click', (event) => {
@@ -943,14 +979,7 @@ async function startCamera() {
   }
 
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        facingMode: 'user',
-      },
-    })
+    stream = await navigator.mediaDevices.getUserMedia(getCameraConstraints())
 
     video.srcObject = stream
     await video.play()
@@ -1663,7 +1692,7 @@ function drawWarpedTriangle(
 function applySoftFaceMask(landmarks: NormalizedLandmark[]) {
   maskAlphaContext.clearRect(0, 0, maskAlphaCanvas.width, maskAlphaCanvas.height)
   maskAlphaContext.save()
-  maskAlphaContext.filter = 'blur(24px)'
+  maskAlphaContext.filter = `blur(${performanceMode === 'performance' ? 12 : 24}px)`
   drawFaceOvalPath(maskAlphaContext, landmarks, 1.18)
   maskAlphaContext.fillStyle = 'rgba(255, 255, 255, 0.98)'
   maskAlphaContext.fill()
@@ -1930,6 +1959,12 @@ function renderMaskModeTabs() {
   })
 }
 
+function renderPerformanceModeTabs() {
+  performanceModeTabs.querySelectorAll<HTMLButtonElement>('.mask-mode-button').forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.performanceMode === performanceMode)
+  })
+}
+
 function renderLastEvent() {
   eventJson.textContent = lastEvent ? JSON.stringify(lastEvent, null, 2) : '{}'
 }
@@ -2106,6 +2141,14 @@ function setFaceTrackingEnabled(next: boolean) {
   updateMaskState()
 }
 
+function setPerformanceMode(next: PerformanceMode) {
+  performanceMode = next
+  localStorage.setItem('xedoc-hands-performance-mode', next)
+  renderPerformanceModeTabs()
+  performanceTitle.textContent = next === 'performance' ? 'Быстрее' : 'Качество'
+  performanceModeState.textContent = next === 'performance' ? 'Камера 640x480' : 'Камера 1280x720'
+}
+
 function setMaskMode(next: MaskMode) {
   maskMode = next
   localStorage.setItem('xedoc-hands-mask-mode', next)
@@ -2171,6 +2214,22 @@ function resetHandTracking() {
   cursorDot.classList.remove('is-visible')
 }
 
+function getCameraConstraints(): MediaStreamConstraints {
+  const size =
+    performanceMode === 'performance'
+      ? { width: { ideal: 640 }, height: { ideal: 480 } }
+      : { width: { ideal: 1280 }, height: { ideal: 720 } }
+
+  return {
+    audio: false,
+    video: {
+      ...size,
+      frameRate: { ideal: 30, max: 30 },
+      facingMode: 'user',
+    },
+  }
+}
+
 function setMirrorMode(next: boolean) {
   mirrorMode = next
   localStorage.setItem('xedoc-hands-mirror', next ? 'on' : 'off')
@@ -2210,6 +2269,24 @@ function readPreset(): PresetId {
 function readMaskMode(): MaskMode {
   const saved = localStorage.getItem('xedoc-hands-mask-mode')
   return saved === 'faceswap' ? 'faceswap' : 'mesh'
+}
+
+function readPerformanceMode(): PerformanceMode {
+  const saved = localStorage.getItem('xedoc-hands-performance-mode')
+
+  if (saved === 'performance' || saved === 'quality') {
+    return saved
+  }
+
+  return isMobileDevice() ? 'performance' : 'quality'
+}
+
+function isMobileDevice() {
+  const userAgent = navigator.userAgent
+  const isAppleMobile = /iPad|iPhone|iPod/.test(userAgent)
+  const isCompactTouch = window.matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) <= 820
+
+  return isAppleMobile || isCompactTouch
 }
 
 function readMaskStability() {
