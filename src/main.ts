@@ -1631,12 +1631,12 @@ function drawWarpedTriangle(
 function applySoftFaceMask(landmarks: NormalizedLandmark[]) {
   maskAlphaContext.clearRect(0, 0, maskAlphaCanvas.width, maskAlphaCanvas.height)
   maskAlphaContext.save()
-  maskAlphaContext.filter = 'blur(20px)'
-  drawFaceOvalPath(maskAlphaContext, landmarks, 1.11)
+  maskAlphaContext.filter = 'blur(24px)'
+  drawFaceOvalPath(maskAlphaContext, landmarks, 1.18)
   maskAlphaContext.fillStyle = 'rgba(255, 255, 255, 0.98)'
   maskAlphaContext.fill()
   maskAlphaContext.filter = 'none'
-  drawFaceOvalPath(maskAlphaContext, landmarks, 1.01)
+  drawFaceOvalPath(maskAlphaContext, landmarks, 1.05)
   maskAlphaContext.fillStyle = '#fff'
   maskAlphaContext.fill()
   maskAlphaContext.restore()
@@ -1648,7 +1648,7 @@ function applySoftFaceMask(landmarks: NormalizedLandmark[]) {
 }
 
 function drawFaceOvalPath(targetContext: CanvasRenderingContext2D, landmarks: NormalizedLandmark[], scale: number) {
-  const points = faceOvalIndices.map((index) => landmarks[index]).filter(Boolean).map(landmarkToCanvasPoint)
+  const points = getFaceMaskBoundaryPoints(landmarks)
 
   if (points.length < 3) {
     return
@@ -1674,6 +1674,18 @@ function drawFaceOvalPath(targetContext: CanvasRenderingContext2D, landmarks: No
   targetContext.closePath()
 }
 
+function getFaceMaskBoundaryPoints(landmarks: NormalizedLandmark[]) {
+  const points = landmarks
+    .map(landmarkToCanvasPoint)
+    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+
+  if (points.length < 3) {
+    return points
+  }
+
+  return convexHull(points)
+}
+
 function getFaceOvalExpansion(landmarks: NormalizedLandmark[]) {
   const pose = getHeadPose(landmarks)
   const yaw = pose?.yaw ?? 0
@@ -1682,9 +1694,9 @@ function getFaceOvalExpansion(landmarks: NormalizedLandmark[]) {
   const pitchLift = clamp(Math.abs(pitch) / 0.35, 0, 1)
 
   return {
-    x: 1 + turn * 0.22,
-    y: 1 + turn * 0.08 + pitchLift * 0.04,
-    biasX: yaw * turn * 0.1 * canvas.width,
+    x: 1 + turn * 0.32,
+    y: 1 + turn * 0.13 + pitchLift * 0.05,
+    biasX: yaw * turn * 0.06 * canvas.width,
   }
 }
 
@@ -2322,6 +2334,37 @@ function polygonCenter(points: Point2D[]): Point2D {
     x: sum.x / points.length,
     y: sum.y / points.length,
   }
+}
+
+function convexHull(points: Point2D[]) {
+  const sorted = [...points].sort((left, right) => left.x - right.x || left.y - right.y)
+  const lower: Point2D[] = []
+
+  for (const point of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) {
+      lower.pop()
+    }
+
+    lower.push(point)
+  }
+
+  const upper: Point2D[] = []
+
+  for (let index = sorted.length - 1; index >= 0; index -= 1) {
+    const point = sorted[index]
+
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) {
+      upper.pop()
+    }
+
+    upper.push(point)
+  }
+
+  return lower.slice(0, -1).concat(upper.slice(0, -1))
+}
+
+function cross(origin: Point2D, first: Point2D, second: Point2D) {
+  return (first.x - origin.x) * (second.y - origin.y) - (first.y - origin.y) * (second.x - origin.x)
 }
 
 function cloneLandmarks(landmarks: NormalizedLandmark[]) {
