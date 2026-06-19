@@ -616,6 +616,17 @@ app.innerHTML = `
               <span>Плавнее</span>
             </div>
           </div>
+          <div class="mask-stability" id="maskEdgeFeatherBlock">
+            <div class="mask-stability-head">
+              <label class="input-label" for="maskEdgeFeather">Мягкий край</label>
+              <strong id="maskEdgeFeatherValue">18px</strong>
+            </div>
+            <input id="maskEdgeFeather" class="range-input" type="range" min="0" max="40" step="1" value="18" />
+            <div class="range-captions">
+              <span>Жёстче</span>
+              <span>Мягче</span>
+            </div>
+          </div>
           <div class="faceswap-options" id="faceSwapOptions">
             <label class="input-label" for="faceSwapEndpoint">FaceSwap bridge</label>
             <input id="faceSwapEndpoint" class="text-input" type="url" value="http://127.0.0.1:8790/swap" />
@@ -708,6 +719,9 @@ const maskPreview = getElement<HTMLImageElement>('maskPreview')
 const maskStabilitySlider = getElement<HTMLInputElement>('maskStability')
 const maskStabilityValue = getElement<HTMLElement>('maskStabilityValue')
 const maskStabilityBlock = getElement<HTMLDivElement>('maskStabilityBlock')
+const maskEdgeFeatherSlider = getElement<HTMLInputElement>('maskEdgeFeather')
+const maskEdgeFeatherValue = getElement<HTMLElement>('maskEdgeFeatherValue')
+const maskEdgeFeatherBlock = getElement<HTMLDivElement>('maskEdgeFeatherBlock')
 const maskModeTabs = getElement<HTMLDivElement>('maskModeTabs')
 const faceSwapOptions = getElement<HTMLDivElement>('faceSwapOptions')
 const faceSwapEndpoint = getElement<HTMLInputElement>('faceSwapEndpoint')
@@ -753,6 +767,7 @@ let performanceMode: PerformanceMode = readPerformanceMode()
 let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
 let maskMode: MaskMode = readMaskMode()
 let maskStability = readMaskStability()
+let maskEdgeFeather = readMaskEdgeFeather()
 let maskLayer: FaceMaskLayer | null = null
 let maskImageUrl: string | null = null
 let maskSourceBlob: Blob | null = null
@@ -787,6 +802,7 @@ setFaceTrackingEnabled(faceTrackingEnabled)
 setPerformanceMode(performanceMode)
 setMaskMode(maskMode)
 setMaskStability(maskStability)
+setMaskEdgeFeather(maskEdgeFeather)
 setMaskEnabled(maskEnabled)
 updateMaskState()
 setModelState('loading', 'Загрузка')
@@ -859,6 +875,10 @@ maskFile.addEventListener('change', () => {
 
 maskStabilitySlider.addEventListener('input', () => {
   setMaskStability(Number(maskStabilitySlider.value))
+})
+
+maskEdgeFeatherSlider.addEventListener('input', () => {
+  setMaskEdgeFeather(Number(maskEdgeFeatherSlider.value))
 })
 
 faceSwapEndpoint.addEventListener('change', () => {
@@ -1473,7 +1493,11 @@ function averageTriangleZ(landmarks: NormalizedLandmark[]) {
 }
 
 function applyRenderedMaskFeather() {
-  const blur = performanceMode === 'performance' ? 5 : 9
+  const blur = maskEdgeFeather
+
+  if (blur <= 0) {
+    return
+  }
 
   maskFeatherContext.clearRect(0, 0, maskFeatherCanvas.width, maskFeatherCanvas.height)
   maskFeatherContext.save()
@@ -2185,6 +2209,13 @@ function setMaskStability(next: number) {
   maskStabilityValue.textContent = `${maskStability}%`
 }
 
+function setMaskEdgeFeather(next: number) {
+  maskEdgeFeather = clamp(Math.round(next), 0, 40)
+  localStorage.setItem('xedoc-hands-mask-edge-feather', String(maskEdgeFeather))
+  maskEdgeFeatherSlider.value = String(maskEdgeFeather)
+  maskEdgeFeatherValue.textContent = `${maskEdgeFeather}px`
+}
+
 function updateMaskState() {
   const hasImage = Boolean(maskImageUrl && maskSourceBlob)
   const meshReady = Boolean(maskLayer)
@@ -2194,6 +2225,7 @@ function updateMaskState() {
   maskToggle.checked = canEnable && maskEnabled
   maskPreview.classList.toggle('is-visible', hasImage)
   maskStabilityBlock.classList.toggle('is-hidden', maskMode !== 'mesh')
+  maskEdgeFeatherBlock.classList.toggle('is-hidden', maskMode !== 'mesh')
   faceSwapOptions.classList.toggle('is-hidden', maskMode !== 'faceswap')
 
   if (!hasImage) {
@@ -2312,6 +2344,12 @@ function isMobileDevice() {
 function readMaskStability() {
   const saved = Number(localStorage.getItem('xedoc-hands-mask-stability'))
   return Number.isFinite(saved) ? clamp(Math.round(saved), 0, 100) : 25
+}
+
+function readMaskEdgeFeather() {
+  const raw = localStorage.getItem('xedoc-hands-mask-edge-feather')
+  const saved = raw === null ? Number.NaN : Number(raw)
+  return Number.isFinite(saved) ? clamp(Math.round(saved), 0, 40) : performanceMode === 'performance' ? 12 : 18
 }
 
 function getElement<T extends HTMLElement>(id: string) {
