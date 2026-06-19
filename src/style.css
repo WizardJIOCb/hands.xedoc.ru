@@ -679,12 +679,12 @@ svg {
 .mask-preview {
   display: none;
   width: 100%;
-  height: 112px;
+  height: 180px;
   margin-top: 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface-2);
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .mask-preview.is-visible {
