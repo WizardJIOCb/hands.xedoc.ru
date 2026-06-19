@@ -525,6 +525,25 @@ app.innerHTML = `
 
         <section class="panel">
           <div class="panel-head">
+            <h2>Маска</h2>
+            <label class="switch">
+              <input id="maskToggle" type="checkbox" />
+              <span></span>
+            </label>
+          </div>
+          <div class="mask-control">
+            <label class="file-button" for="maskFile">
+              <i data-lucide="scan-eye"></i>
+              <span>Изображение</span>
+            </label>
+            <input id="maskFile" class="file-input" type="file" accept="image/*" />
+            <p class="mask-state" id="maskState">Не выбрана</p>
+          </div>
+          <img class="mask-preview" id="maskPreview" alt="" />
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
             <h2>Webhook</h2>
             <label class="switch">
               <input id="webhookToggle" type="checkbox" />
@@ -593,6 +612,10 @@ const motionValue = getElement<HTMLElement>('motionValue')
 const motionMeter = getElement<HTMLSpanElement>('motionMeter')
 const presetTitle = getElement<HTMLElement>('presetTitle')
 const presetTabs = getElement<HTMLDivElement>('presetTabs')
+const maskToggle = getElement<HTMLInputElement>('maskToggle')
+const maskFile = getElement<HTMLInputElement>('maskFile')
+const maskState = getElement<HTMLElement>('maskState')
+const maskPreview = getElement<HTMLImageElement>('maskPreview')
 const webhookToggle = getElement<HTMLInputElement>('webhookToggle')
 const webhookUrl = getElement<HTMLInputElement>('webhookUrl')
 const webhookState = getElement<HTMLElement>('webhookState')
@@ -616,6 +639,9 @@ let isRunning = false
 let lastVideoTime = -1
 let currentPreset: PresetId = readPreset()
 let mirrorMode = localStorage.getItem('xedoc-hands-mirror') !== 'off'
+let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
+let maskImage: HTMLImageElement | null = null
+let maskImageUrl: string | null = null
 let lastEvent: GestureEvent | null = null
 let eventSequence = 0
 let frameCount = 0
@@ -633,6 +659,8 @@ renderPresetTabs()
 renderGestureGrid()
 refreshIcons()
 setMirrorMode(mirrorMode)
+setMaskEnabled(maskEnabled)
+updateMaskState()
 setModelState('loading', 'Загрузка')
 setCameraState('idle', 'Ожидание')
 setFaceState('idle', 'Ожидание')
@@ -655,6 +683,18 @@ testButton.addEventListener('click', () => {
   fireGesture('Thumb_Up', 1, 'manual', { test: true })
 })
 
+maskToggle.addEventListener('change', () => {
+  setMaskEnabled(maskToggle.checked)
+})
+
+maskFile.addEventListener('change', () => {
+  const file = maskFile.files?.[0]
+
+  if (file) {
+    loadMaskFile(file)
+  }
+})
+
 copyButton.addEventListener('click', () => {
   void copyLastEvent()
 })
@@ -669,6 +709,11 @@ webhookUrl.addEventListener('change', () => {
 })
 
 window.addEventListener('resize', syncCanvasSize)
+window.addEventListener('beforeunload', () => {
+  if (maskImageUrl) {
+    URL.revokeObjectURL(maskImageUrl)
+  }
+})
 
 const savedWebhook = localStorage.getItem('xedoc-hands-webhook-url')
 const savedWebhookEnabled = localStorage.getItem('xedoc-hands-webhook-enabled') === 'true'
@@ -1027,7 +1072,12 @@ function processFaceResult(result: FaceLandmarkerResult, now: number, detected: 
   }
 
   setFaceState('ready', 'В кадре')
-  drawFace(face)
+
+  if (maskEnabled && maskImage) {
+    drawFaceMask(face)
+  } else {
+    drawFace(face)
+  }
 
   const categories = result.faceBlendshapes[0]?.categories ?? []
   const smile = (faceScore(categories, 'mouthSmileLeft') + faceScore(categories, 'mouthSmileRight')) / 2
@@ -1142,6 +1192,61 @@ function drawFace(landmarks: NormalizedLandmark[]) {
     lineWidth: 2,
     radius: 3,
   })
+}
+
+function drawFaceMask(landmarks: NormalizedLandmark[]) {
+  if (!maskImage?.complete || !maskImage.naturalWidth || !maskImage.naturalHeight) {
+    return
+  }
+
+  const leftEye = landmarks[33]
+  const rightEye = landmarks[263]
+
+  if (!leftEye || !rightEye) {
+    return
+  }
+
+  const bounds = landmarks.reduce(
+    (acc, landmark) => ({
+      minX: Math.min(acc.minX, landmark.x),
+      maxX: Math.max(acc.maxX, landmark.x),
+      minY: Math.min(acc.minY, landmark.y),
+      maxY: Math.max(acc.maxY, landmark.y),
+    }),
+    { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity },
+  )
+  const faceWidth = (bounds.maxX - bounds.minX) * canvas.width
+  const faceHeight = (bounds.maxY - bounds.minY) * canvas.height
+
+  if (!Number.isFinite(faceWidth) || !Number.isFinite(faceHeight) || faceWidth <= 0 || faceHeight <= 0) {
+    return
+  }
+
+  const centerX = ((bounds.minX + bounds.maxX) / 2) * canvas.width
+  const centerY = ((bounds.minY + bounds.maxY) / 2) * canvas.height
+  const angle = Math.atan2(
+    (rightEye.y - leftEye.y) * canvas.height,
+    (rightEye.x - leftEye.x) * canvas.width,
+  )
+  const imageRatio = maskImage.naturalWidth / maskImage.naturalHeight
+  let drawWidth = faceWidth * 1.18
+  let drawHeight = faceHeight * 1.2
+  const targetRatio = drawWidth / drawHeight
+
+  if (imageRatio > targetRatio) {
+    drawWidth = drawHeight * imageRatio
+  } else {
+    drawHeight = drawWidth / imageRatio
+  }
+
+  context.save()
+  context.translate(centerX, centerY)
+  context.rotate(angle)
+  context.globalAlpha = 0.96
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
+  context.drawImage(maskImage, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight)
+  context.restore()
 }
 
 function fireFaceSignal(
@@ -1375,6 +1480,56 @@ function setCameraState(state: 'idle' | 'loading' | 'ready' | 'error', text: str
 function setFaceState(state: 'idle' | 'loading' | 'ready' | 'error', text: string) {
   faceDot.dataset.state = state
   faceStatus.textContent = text
+}
+
+function loadMaskFile(file: File) {
+  if (!file.type.startsWith('image/')) {
+    maskState.textContent = 'Не изображение'
+    return
+  }
+
+  maskState.textContent = 'Загрузка'
+  const nextUrl = URL.createObjectURL(file)
+  const nextImage = new Image()
+
+  nextImage.addEventListener('load', () => {
+    if (maskImageUrl) {
+      URL.revokeObjectURL(maskImageUrl)
+    }
+
+    maskImageUrl = nextUrl
+    maskImage = nextImage
+    maskPreview.src = nextUrl
+    setMaskEnabled(true)
+  })
+
+  nextImage.addEventListener('error', () => {
+    URL.revokeObjectURL(nextUrl)
+    maskState.textContent = 'Не загрузилась'
+  })
+
+  nextImage.src = nextUrl
+}
+
+function setMaskEnabled(next: boolean) {
+  maskEnabled = next
+  localStorage.setItem('xedoc-hands-mask-enabled', String(next))
+  updateMaskState()
+}
+
+function updateMaskState() {
+  const hasImage = Boolean(maskImage && maskImageUrl)
+
+  maskToggle.disabled = !hasImage
+  maskToggle.checked = hasImage && maskEnabled
+  maskPreview.classList.toggle('is-visible', hasImage)
+
+  if (!hasImage) {
+    maskState.textContent = 'Не выбрана'
+    return
+  }
+
+  maskState.textContent = maskEnabled ? 'Включена' : 'Выключена'
 }
 
 function setMirrorMode(next: boolean) {
