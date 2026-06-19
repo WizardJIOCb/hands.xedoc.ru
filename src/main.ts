@@ -127,6 +127,11 @@ type Point2D = {
   y: number
 }
 
+type FaceDepthStats = {
+  median: number
+  range: number
+}
+
 type FaceMaskLayer = {
   image: HTMLImageElement
   landmarks: NormalizedLandmark[]
@@ -1382,6 +1387,8 @@ function drawFaceMask(landmarks: NormalizedLandmark[]) {
   maskRenderContext.imageSmoothingEnabled = true
   maskRenderContext.imageSmoothingQuality = 'high'
   maskRenderContext.globalAlpha = 1
+  const profileAmount = getFaceProfileAmount(landmarks)
+  const depthStats = getFaceDepthStats(landmarks)
 
   for (const triangle of layer.triangles) {
     const source = triangle.map((index) => layer.landmarks[index])
@@ -1391,11 +1398,18 @@ function drawFaceMask(landmarks: NormalizedLandmark[]) {
       continue
     }
 
+    const sourcePoints = source.map((landmark) => landmarkToSourcePoint(landmark, layer))
+    const targetPoints = target.map(landmarkToCanvasPoint)
+
+    if (!shouldDrawMaskTriangle(sourcePoints, targetPoints, target, profileAmount, depthStats)) {
+      continue
+    }
+
     drawWarpedTriangle(
       maskRenderContext,
       layer.image,
-      source.map((landmark) => landmarkToSourcePoint(landmark, layer)),
-      target.map(landmarkToCanvasPoint),
+      sourcePoints,
+      targetPoints,
     )
   }
 
@@ -1403,17 +1417,61 @@ function drawFaceMask(landmarks: NormalizedLandmark[]) {
   applySoftFaceMask(landmarks)
 
   context.save()
-  context.globalAlpha = getMeshMaskOpacity(landmarks)
+  context.globalAlpha = 0.96
   context.drawImage(maskRenderCanvas, 0, 0)
   context.restore()
 }
 
-function getMeshMaskOpacity(landmarks: NormalizedLandmark[]) {
-  const pose = getHeadPose(landmarks)
-  const yaw = Math.abs(pose?.yaw ?? 0)
-  const profile = clamp((yaw - 0.22) / 0.2, 0, 1)
+function shouldDrawMaskTriangle(
+  source: Point2D[],
+  target: Point2D[],
+  targetLandmarks: NormalizedLandmark[],
+  profileAmount: number,
+  depthStats: FaceDepthStats,
+) {
+  const sourceArea = triangleArea(source)
+  const targetArea = triangleArea(target)
+  const targetSize = triangleMaxEdge(target)
+  const targetShape = Math.abs(targetArea) / Math.max(targetSize * targetSize, 1)
 
-  return 0.96 - profile * 0.46
+  if (Math.abs(sourceArea) < 0.5 || Math.abs(targetArea) < 0.35 || targetShape < 0.006) {
+    return false
+  }
+
+  if (Math.sign(sourceArea) !== Math.sign(targetArea)) {
+    return false
+  }
+
+  if (profileAmount > 0.18 && depthStats.range > 0.001) {
+    const averageZ =
+      targetLandmarks.reduce((sum, landmark) => sum + (landmark.z ?? depthStats.median), 0) / targetLandmarks.length
+    const farSideCutoff = depthStats.median + depthStats.range * (0.18 - profileAmount * 0.08)
+
+    if (averageZ > farSideCutoff) {
+      return false
+    }
+  }
+
+  return true
+}
+
+function getFaceProfileAmount(landmarks: NormalizedLandmark[]) {
+  const pose = getHeadPose(landmarks)
+  return clamp((Math.abs(pose?.yaw ?? 0) - 0.16) / 0.26, 0, 1)
+}
+
+function getFaceDepthStats(landmarks: NormalizedLandmark[]): FaceDepthStats {
+  const values = landmarks.map((landmark) => landmark.z ?? 0).filter(Number.isFinite).sort((left, right) => left - right)
+
+  if (!values.length) {
+    return { median: 0, range: 0 }
+  }
+
+  const median = values[Math.floor(values.length / 2)]
+  return {
+    median,
+    range: values[values.length - 1] - values[0],
+  }
 }
 
 function compensateMaskLag(landmarks: NormalizedLandmark[], now: number) {
@@ -2342,6 +2400,20 @@ function polygonCenter(points: Point2D[]): Point2D {
     x: sum.x / points.length,
     y: sum.y / points.length,
   }
+}
+
+function triangleArea(points: Point2D[]) {
+  const [a, b, c] = points
+  return ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) / 2
+}
+
+function triangleMaxEdge(points: Point2D[]) {
+  const [a, b, c] = points
+  return Math.max(pointDistance(a, b), pointDistance(b, c), pointDistance(c, a))
+}
+
+function pointDistance(a: Point2D, b: Point2D) {
+  return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
 function convexHull(points: Point2D[]) {
