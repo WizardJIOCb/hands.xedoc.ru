@@ -218,6 +218,10 @@ const gestureDefinitions: GestureDefinition[] = [
 
 const gestureKeys = new Set(gestureDefinitions.map((gesture) => gesture.key))
 const faceTriangles = buildFaceTriangles(FaceLandmarker.FACE_LANDMARKS_TESSELATION)
+const faceOvalIndices = [
+  10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176,
+  149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109,
+]
 
 const presets: Record<
   PresetId,
@@ -648,6 +652,11 @@ if (!canvasContext) {
 
 const context: CanvasRenderingContext2D = canvasContext
 const drawingUtils = new DrawingUtils(context)
+const maskRenderCanvas = document.createElement('canvas')
+const maskRenderContext = getCanvasContext(maskRenderCanvas)
+const maskAlphaCanvas = document.createElement('canvas')
+const maskAlphaContext = getCanvasContext(maskAlphaCanvas)
+
 let recognizer: GestureRecognizer | null = null
 let faceLandmarker: FaceLandmarker | null = null
 let maskFaceLandmarker: FaceLandmarker | null = null
@@ -1242,10 +1251,12 @@ function drawFaceMask(landmarks: NormalizedLandmark[]) {
     return
   }
 
-  context.save()
-  context.imageSmoothingEnabled = true
-  context.imageSmoothingQuality = 'high'
-  context.globalAlpha = 0.97
+  syncMaskCanvases()
+  maskRenderContext.clearRect(0, 0, maskRenderCanvas.width, maskRenderCanvas.height)
+  maskRenderContext.save()
+  maskRenderContext.imageSmoothingEnabled = true
+  maskRenderContext.imageSmoothingQuality = 'high'
+  maskRenderContext.globalAlpha = 1
 
   for (const triangle of layer.triangles) {
     const source = triangle.map((index) => layer.landmarks[index])
@@ -1256,18 +1267,31 @@ function drawFaceMask(landmarks: NormalizedLandmark[]) {
     }
 
     drawWarpedTriangle(
+      maskRenderContext,
       layer.image,
       source.map((landmark) => landmarkToSourcePoint(landmark, layer)),
       target.map(landmarkToCanvasPoint),
     )
   }
 
+  maskRenderContext.restore()
+  applySoftFaceMask(landmarks)
+
+  context.save()
+  context.globalAlpha = 0.96
+  context.drawImage(maskRenderCanvas, 0, 0)
   context.restore()
 }
 
-function drawWarpedTriangle(image: HTMLImageElement, source: Point2D[], target: Point2D[]) {
+function drawWarpedTriangle(
+  targetContext: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  source: Point2D[],
+  target: Point2D[],
+) {
   const [s0, s1, s2] = source
   const [t0, t1, t2] = target
+  const clip = expandTriangle(target, 1.8)
   const determinant = s0.x * (s1.y - s2.y) + s1.x * (s2.y - s0.y) + s2.x * (s0.y - s1.y)
 
   if (Math.abs(determinant) < 0.001) {
@@ -1289,16 +1313,70 @@ function drawWarpedTriangle(image: HTMLImageElement, source: Point2D[], target: 
       t2.y * (s0.x * s1.y - s1.x * s0.y)) /
     determinant
 
-  context.save()
-  context.beginPath()
-  context.moveTo(t0.x, t0.y)
-  context.lineTo(t1.x, t1.y)
-  context.lineTo(t2.x, t2.y)
-  context.closePath()
-  context.clip()
-  context.transform(a, b, c, d, e, f)
-  context.drawImage(image, 0, 0)
-  context.restore()
+  targetContext.save()
+  targetContext.beginPath()
+  targetContext.moveTo(clip[0].x, clip[0].y)
+  targetContext.lineTo(clip[1].x, clip[1].y)
+  targetContext.lineTo(clip[2].x, clip[2].y)
+  targetContext.closePath()
+  targetContext.clip()
+  targetContext.transform(a, b, c, d, e, f)
+  targetContext.drawImage(image, 0, 0)
+  targetContext.restore()
+}
+
+function applySoftFaceMask(landmarks: NormalizedLandmark[]) {
+  maskAlphaContext.clearRect(0, 0, maskAlphaCanvas.width, maskAlphaCanvas.height)
+  maskAlphaContext.save()
+  maskAlphaContext.filter = 'blur(16px)'
+  drawFaceOvalPath(maskAlphaContext, landmarks, 1.07)
+  maskAlphaContext.fillStyle = 'rgba(255, 255, 255, 0.98)'
+  maskAlphaContext.fill()
+  maskAlphaContext.filter = 'none'
+  drawFaceOvalPath(maskAlphaContext, landmarks, 0.97)
+  maskAlphaContext.fillStyle = '#fff'
+  maskAlphaContext.fill()
+  maskAlphaContext.restore()
+
+  maskRenderContext.save()
+  maskRenderContext.globalCompositeOperation = 'destination-in'
+  maskRenderContext.drawImage(maskAlphaCanvas, 0, 0)
+  maskRenderContext.restore()
+}
+
+function drawFaceOvalPath(targetContext: CanvasRenderingContext2D, landmarks: NormalizedLandmark[], scale: number) {
+  const points = faceOvalIndices.map((index) => landmarks[index]).filter(Boolean).map(landmarkToCanvasPoint)
+
+  if (points.length < 3) {
+    return
+  }
+
+  const center = polygonCenter(points)
+  const scaled = points.map((point) => scalePointFromCenter(point, center, scale))
+  const firstPoint = scaled[0]
+  const lastPoint = scaled[scaled.length - 1]
+
+  targetContext.beginPath()
+  targetContext.moveTo((lastPoint.x + firstPoint.x) / 2, (lastPoint.y + firstPoint.y) / 2)
+
+  for (let index = 0; index < scaled.length; index += 1) {
+    const current = scaled[index]
+    const next = scaled[(index + 1) % scaled.length]
+    const controlX = (current.x + next.x) / 2
+    const controlY = (current.y + next.y) / 2
+    targetContext.quadraticCurveTo(current.x, current.y, controlX, controlY)
+  }
+
+  targetContext.closePath()
+}
+
+function syncMaskCanvases() {
+  if (maskRenderCanvas.width !== canvas.width || maskRenderCanvas.height !== canvas.height) {
+    maskRenderCanvas.width = canvas.width
+    maskRenderCanvas.height = canvas.height
+    maskAlphaCanvas.width = canvas.width
+    maskAlphaCanvas.height = canvas.height
+  }
 }
 
 function fireFaceSignal(
@@ -1661,6 +1739,16 @@ function getElement<T extends HTMLElement>(id: string) {
   return element as T
 }
 
+function getCanvasContext(targetCanvas: HTMLCanvasElement) {
+  const targetContext = targetCanvas.getContext('2d')
+
+  if (!targetContext) {
+    throw new Error('Canvas context was not found')
+  }
+
+  return targetContext
+}
+
 function refreshIcons() {
   createIcons({ icons: usedIcons })
 }
@@ -1728,6 +1816,43 @@ function landmarkToSourcePoint(landmark: NormalizedLandmark, layer: FaceMaskLaye
   return {
     x: landmark.x * layer.width,
     y: landmark.y * layer.height,
+  }
+}
+
+function expandTriangle(points: Point2D[], pixels: number) {
+  const center = polygonCenter(points)
+
+  return points.map((point) => {
+    const dx = point.x - center.x
+    const dy = point.y - center.y
+    const length = Math.max(Math.hypot(dx, dy), 0.001)
+
+    return {
+      x: point.x + (dx / length) * pixels,
+      y: point.y + (dy / length) * pixels,
+    }
+  })
+}
+
+function polygonCenter(points: Point2D[]): Point2D {
+  const sum = points.reduce(
+    (acc, point) => ({
+      x: acc.x + point.x,
+      y: acc.y + point.y,
+    }),
+    { x: 0, y: 0 },
+  )
+
+  return {
+    x: sum.x / points.length,
+    y: sum.y / points.length,
+  }
+}
+
+function scalePointFromCenter(point: Point2D, center: Point2D, scale: number): Point2D {
+  return {
+    x: center.x + (point.x - center.x) * scale,
+    y: center.y + (point.y - center.y) * scale,
   }
 }
 
