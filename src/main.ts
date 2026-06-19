@@ -51,6 +51,7 @@ import {
 } from 'lucide'
 
 type PresetId = 'browser' | 'stream' | 'agent' | 'graph' | 'home'
+type MaskMode = 'mesh' | 'faceswap'
 
 type GestureKey =
   | 'Pointing_Up'
@@ -537,6 +538,17 @@ app.innerHTML = `
 
         <section class="panel">
           <div class="panel-head">
+            <h2>Лицо</h2>
+            <label class="switch">
+              <input id="faceTrackingToggle" type="checkbox" checked />
+              <span></span>
+            </label>
+          </div>
+          <p class="panel-state" id="faceTrackingState">Трекинг и маркеры включены</p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
             <h2>Режим</h2>
             <span id="presetTitle">ПК</span>
           </div>
@@ -559,7 +571,11 @@ app.innerHTML = `
             <input id="maskFile" class="file-input" type="file" accept="image/*" />
             <p class="mask-state" id="maskState">Не выбрана</p>
           </div>
-          <div class="mask-stability">
+          <div class="mask-mode" id="maskModeTabs" aria-label="Режим маски">
+            <button class="mask-mode-button" data-mask-mode="mesh" type="button">Mesh</button>
+            <button class="mask-mode-button" data-mask-mode="faceswap" type="button">FaceSwap</button>
+          </div>
+          <div class="mask-stability" id="maskStabilityBlock">
             <div class="mask-stability-head">
               <label class="input-label" for="maskStability">Стабилизация</label>
               <strong id="maskStabilityValue">25%</strong>
@@ -569,6 +585,11 @@ app.innerHTML = `
               <span>Быстрее</span>
               <span>Плавнее</span>
             </div>
+          </div>
+          <div class="faceswap-options" id="faceSwapOptions">
+            <label class="input-label" for="faceSwapEndpoint">FaceSwap bridge</label>
+            <input id="faceSwapEndpoint" class="text-input" type="url" value="http://127.0.0.1:8790/swap" />
+            <p class="panel-state" id="faceSwapState">Ожидает локальный bridge</p>
           </div>
           <img class="mask-preview" id="maskPreview" alt="" />
         </section>
@@ -631,6 +652,8 @@ const cameraDot = getElement<HTMLSpanElement>('cameraDot')
 const cameraStatus = getElement<HTMLElement>('cameraStatus')
 const faceDot = getElement<HTMLSpanElement>('faceDot')
 const faceStatus = getElement<HTMLElement>('faceStatus')
+const faceTrackingToggle = getElement<HTMLInputElement>('faceTrackingToggle')
+const faceTrackingState = getElement<HTMLElement>('faceTrackingState')
 const currentGesture = getElement<HTMLElement>('currentGesture')
 const fpsValue = getElement<HTMLElement>('fpsValue')
 const handCount = getElement<HTMLElement>('handCount')
@@ -649,6 +672,11 @@ const maskState = getElement<HTMLElement>('maskState')
 const maskPreview = getElement<HTMLImageElement>('maskPreview')
 const maskStabilitySlider = getElement<HTMLInputElement>('maskStability')
 const maskStabilityValue = getElement<HTMLElement>('maskStabilityValue')
+const maskStabilityBlock = getElement<HTMLDivElement>('maskStabilityBlock')
+const maskModeTabs = getElement<HTMLDivElement>('maskModeTabs')
+const faceSwapOptions = getElement<HTMLDivElement>('faceSwapOptions')
+const faceSwapEndpoint = getElement<HTMLInputElement>('faceSwapEndpoint')
+const faceSwapState = getElement<HTMLElement>('faceSwapState')
 const webhookToggle = getElement<HTMLInputElement>('webhookToggle')
 const webhookUrl = getElement<HTMLInputElement>('webhookUrl')
 const webhookState = getElement<HTMLElement>('webhookState')
@@ -669,6 +697,9 @@ const maskRenderCanvas = document.createElement('canvas')
 const maskRenderContext = getCanvasContext(maskRenderCanvas)
 const maskAlphaCanvas = document.createElement('canvas')
 const maskAlphaContext = getCanvasContext(maskAlphaCanvas)
+const faceSwapCaptureCanvas = document.createElement('canvas')
+const faceSwapCaptureContext = getCanvasContext(faceSwapCaptureCanvas)
+const faceSwapRequestIntervalMs = 180
 
 let recognizer: GestureRecognizer | null = null
 let faceLandmarker: FaceLandmarker | null = null
@@ -679,13 +710,20 @@ let isRunning = false
 let lastVideoTime = -1
 let currentPreset: PresetId = readPreset()
 let mirrorMode = localStorage.getItem('xedoc-hands-mirror') !== 'off'
+let faceTrackingEnabled = localStorage.getItem('xedoc-hands-face-tracking') !== 'off'
 let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
+let maskMode: MaskMode = readMaskMode()
 let maskStability = readMaskStability()
 let maskLayer: FaceMaskLayer | null = null
 let maskImageUrl: string | null = null
+let maskSourceBlob: Blob | null = null
 let previousMaskFaceLandmarks: NormalizedLandmark[] | null = null
 let displayedMaskFaceLandmarks: NormalizedLandmark[] | null = null
 let previousMaskFaceAt = 0
+let faceSwapFrameImage: HTMLImageElement | null = null
+let faceSwapFrameUrl: string | null = null
+let faceSwapInFlight = false
+let faceSwapLastRequestAt = 0
 let lastEvent: GestureEvent | null = null
 let eventSequence = 0
 let frameCount = 0
@@ -701,14 +739,17 @@ const cooldowns = new Map<GestureKey, number>()
 
 renderPresetTabs()
 renderGestureGrid()
+renderMaskModeTabs()
 refreshIcons()
 setMirrorMode(mirrorMode)
+setFaceTrackingEnabled(faceTrackingEnabled)
+setMaskMode(maskMode)
 setMaskStability(maskStability)
 setMaskEnabled(maskEnabled)
 updateMaskState()
 setModelState('loading', 'Загрузка')
 setCameraState('idle', 'Ожидание')
-setFaceState('idle', 'Ожидание')
+setFaceState('idle', faceTrackingEnabled ? 'Ожидание' : 'Откл.')
 void bootModel()
 
 cameraButton.addEventListener('click', () => {
@@ -732,6 +773,19 @@ maskToggle.addEventListener('change', () => {
   setMaskEnabled(maskToggle.checked)
 })
 
+faceTrackingToggle.addEventListener('change', () => {
+  setFaceTrackingEnabled(faceTrackingToggle.checked)
+})
+
+maskModeTabs.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('.mask-mode-button')
+  const mode = button?.dataset.maskMode
+
+  if (mode === 'mesh' || mode === 'faceswap') {
+    setMaskMode(mode)
+  }
+})
+
 maskFile.addEventListener('change', () => {
   const file = maskFile.files?.[0]
 
@@ -742,6 +796,11 @@ maskFile.addEventListener('change', () => {
 
 maskStabilitySlider.addEventListener('input', () => {
   setMaskStability(Number(maskStabilitySlider.value))
+})
+
+faceSwapEndpoint.addEventListener('change', () => {
+  localStorage.setItem('xedoc-hands-faceswap-endpoint', faceSwapEndpoint.value.trim())
+  faceSwapState.textContent = 'Endpoint обновлен'
 })
 
 copyButton.addEventListener('click', () => {
@@ -762,13 +821,20 @@ window.addEventListener('beforeunload', () => {
   if (maskImageUrl) {
     URL.revokeObjectURL(maskImageUrl)
   }
+
+  resetFaceSwapFrame()
 })
 
 const savedWebhook = localStorage.getItem('xedoc-hands-webhook-url')
 const savedWebhookEnabled = localStorage.getItem('xedoc-hands-webhook-enabled') === 'true'
+const savedFaceSwapEndpoint = localStorage.getItem('xedoc-hands-faceswap-endpoint')
 
 if (savedWebhook) {
   webhookUrl.value = savedWebhook
+}
+
+if (savedFaceSwapEndpoint) {
+  faceSwapEndpoint.value = savedFaceSwapEndpoint
 }
 
 webhookToggle.checked = savedWebhookEnabled
@@ -831,7 +897,7 @@ async function bootModels() {
     maskFaceLandmarker = maskFaceTask
 
     setModelState('ready', 'Готовы')
-    setFaceState('idle', 'Нет лица')
+    setFaceState('idle', faceTrackingEnabled ? 'Нет лица' : 'Откл.')
   } catch (error) {
     console.error(error)
     modelBootPromise = null
@@ -894,8 +960,9 @@ function stopCamera() {
   cameraButton.classList.remove('is-active')
   cameraButton.querySelector('span')!.textContent = 'Камера'
   setCameraState('idle', 'Ожидание')
-  setFaceState('idle', 'Ожидание')
+  setFaceState('idle', faceTrackingEnabled ? 'Ожидание' : 'Откл.')
   resetMaskMotion()
+  resetFaceSwapFrame()
   faceCount.textContent = '0'
   setReadout('Нет руки', 0, 0, 0, 0, 0)
   setActiveGestures(new Set())
@@ -911,7 +978,7 @@ function predictFrame(now: number) {
   if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.currentTime !== lastVideoTime) {
     lastVideoTime = video.currentTime
     const handResult = recognizer.recognizeForVideo(video, now)
-    const faceResult = faceLandmarker.detectForVideo(video, now)
+    const faceResult = faceTrackingEnabled ? faceLandmarker.detectForVideo(video, now) : null
     processResult(handResult, faceResult, now)
     updateFps(now)
   }
@@ -919,8 +986,10 @@ function predictFrame(now: number) {
   requestAnimationFrame(predictFrame)
 }
 
-function processResult(result: GestureRecognizerResult, faceResult: FaceLandmarkerResult, now: number) {
+function processResult(result: GestureRecognizerResult, faceResult: FaceLandmarkerResult | null, now: number) {
   context.clearRect(0, 0, canvas.width, canvas.height)
+  updateFaceSwapBridge(now)
+  drawFaceSwapFrame()
 
   const detected = new Set<GestureKey>()
   const topGesture = result.gestures[0]?.[0]
@@ -928,7 +997,14 @@ function processResult(result: GestureRecognizerResult, faceResult: FaceLandmark
   const modelGesture = topGesture?.categoryName ?? 'None'
   const landmarks = result.landmarks[0]
 
-  processFaceResult(faceResult, now, detected)
+  if (faceTrackingEnabled && faceResult) {
+    processFaceResult(faceResult, now, detected)
+  } else {
+    faceCount.textContent = '0'
+    headSamples = []
+    resetMaskMotion()
+    setFaceState('idle', faceTrackingEnabled ? 'Нет лица' : 'Откл.')
+  }
 
   for (const hand of result.landmarks) {
     drawingUtils.drawConnectors(hand, GestureRecognizer.HAND_CONNECTIONS, {
@@ -1147,8 +1223,12 @@ function processFaceResult(result: FaceLandmarkerResult, now: number, detected: 
 
   setFaceState('ready', 'В кадре')
 
-  if (maskEnabled && maskLayer) {
+  if (maskEnabled && maskMode === 'mesh' && maskLayer) {
     drawFaceMask(compensateMaskLag(face, now))
+  } else if (maskEnabled && maskMode === 'faceswap') {
+    previousMaskFaceLandmarks = cloneLandmarks(face)
+    displayedMaskFaceLandmarks = cloneLandmarks(face)
+    previousMaskFaceAt = now
   } else {
     previousMaskFaceLandmarks = cloneLandmarks(face)
     displayedMaskFaceLandmarks = cloneLandmarks(face)
@@ -1368,6 +1448,124 @@ function compensateMaskLag(landmarks: NormalizedLandmark[], now: number) {
 
   displayedMaskFaceLandmarks = cloneLandmarks(stabilized)
   return stabilized
+}
+
+function updateFaceSwapBridge(now: number) {
+  if (!maskEnabled || maskMode !== 'faceswap' || !maskSourceBlob || faceSwapInFlight) {
+    return
+  }
+
+  if (!video.videoWidth || !video.videoHeight || now - faceSwapLastRequestAt < faceSwapRequestIntervalMs) {
+    return
+  }
+
+  faceSwapLastRequestAt = now
+  faceSwapInFlight = true
+  void requestFaceSwapFrame()
+}
+
+function drawFaceSwapFrame() {
+  if (!maskEnabled || maskMode !== 'faceswap' || !faceSwapFrameImage?.complete) {
+    return
+  }
+
+  context.save()
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
+  context.drawImage(faceSwapFrameImage, 0, 0, canvas.width, canvas.height)
+  context.restore()
+}
+
+async function requestFaceSwapFrame() {
+  const source = maskSourceBlob
+  const endpoint = faceSwapEndpoint.value.trim()
+
+  if (!source || !endpoint) {
+    faceSwapInFlight = false
+    faceSwapState.textContent = 'Нет endpoint'
+    return
+  }
+
+  try {
+    const frame = await captureVideoBlob()
+    const body = new FormData()
+    body.append('frame', frame, 'frame.jpg')
+    body.append('source', source, 'source.png')
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      body,
+    })
+
+    if (!response.ok) {
+      throw new Error(`FaceSwap bridge ${response.status}`)
+    }
+
+    const imageBlob = await response.blob()
+    await setFaceSwapFrame(imageBlob)
+    faceSwapState.textContent = 'Bridge работает'
+  } catch (error) {
+    console.error(error)
+    faceSwapState.textContent = 'Bridge недоступен'
+  } finally {
+    faceSwapInFlight = false
+  }
+}
+
+function captureVideoBlob() {
+  syncFaceSwapCaptureCanvas()
+  faceSwapCaptureContext.drawImage(video, 0, 0, faceSwapCaptureCanvas.width, faceSwapCaptureCanvas.height)
+
+  return new Promise<Blob>((resolve, reject) => {
+    faceSwapCaptureCanvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob)
+        } else {
+          reject(new Error('Не удалось снять кадр'))
+        }
+      },
+      'image/jpeg',
+      0.82,
+    )
+  })
+}
+
+function syncFaceSwapCaptureCanvas() {
+  if (faceSwapCaptureCanvas.width !== video.videoWidth || faceSwapCaptureCanvas.height !== video.videoHeight) {
+    faceSwapCaptureCanvas.width = video.videoWidth
+    faceSwapCaptureCanvas.height = video.videoHeight
+  }
+}
+
+function setFaceSwapFrame(blob: Blob) {
+  return new Promise<void>((resolve, reject) => {
+    const url = URL.createObjectURL(blob)
+    const image = new Image()
+
+    image.addEventListener('load', () => {
+      resetFaceSwapFrame()
+      faceSwapFrameUrl = url
+      faceSwapFrameImage = image
+      resolve()
+    })
+
+    image.addEventListener('error', () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('Не удалось показать FaceSwap кадр'))
+    })
+
+    image.src = url
+  })
+}
+
+function resetFaceSwapFrame() {
+  if (faceSwapFrameUrl) {
+    URL.revokeObjectURL(faceSwapFrameUrl)
+  }
+
+  faceSwapFrameImage = null
+  faceSwapFrameUrl = null
 }
 
 function drawWarpedTriangle(
@@ -1634,6 +1832,12 @@ function renderGestureGrid() {
   actionHint.textContent = `${presets[currentPreset].title}: ${gestureDefinitions.length} команд`
 }
 
+function renderMaskModeTabs() {
+  maskModeTabs.querySelectorAll<HTMLButtonElement>('.mask-mode-button').forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.maskMode === maskMode)
+  })
+}
+
 function renderLastEvent() {
   eventJson.textContent = lastEvent ? JSON.stringify(lastEvent, null, 2) : '{}'
 }
@@ -1710,7 +1914,7 @@ function loadMaskFile(file: File) {
   const nextImage = new Image()
 
   nextImage.addEventListener('load', () => {
-    void prepareMaskLayer(nextImage, nextUrl)
+    void prepareMaskLayer(nextImage, nextUrl, file)
   })
 
   nextImage.addEventListener('error', () => {
@@ -1721,7 +1925,7 @@ function loadMaskFile(file: File) {
   nextImage.src = nextUrl
 }
 
-async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string) {
+async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string, sourceBlob: Blob) {
   maskState.textContent = 'Ищем лицо'
 
   if (!maskFaceLandmarker) {
@@ -1737,31 +1941,67 @@ async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string) {
   const result = maskFaceLandmarker.detect(image)
   const landmarks = result.faceLandmarks[0]
 
-  if (!landmarks) {
-    URL.revokeObjectURL(imageUrl)
-    maskState.textContent = 'Лицо не найдено'
-    return
-  }
-
   if (maskImageUrl) {
     URL.revokeObjectURL(maskImageUrl)
   }
 
-  maskLayer = {
-    image,
-    landmarks,
-    triangles: faceTriangles,
-    width: image.naturalWidth,
-    height: image.naturalHeight,
-  }
+  resetFaceSwapFrame()
+
+  maskLayer = landmarks
+    ? {
+        image,
+        landmarks,
+        triangles: faceTriangles,
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+      }
+    : null
   maskImageUrl = imageUrl
+  maskSourceBlob = sourceBlob
   maskPreview.src = imageUrl
   setMaskEnabled(true)
+
+  if (!landmarks) {
+    maskState.textContent = maskMode === 'mesh' ? 'Лицо не найдено' : 'FaceSwap готов'
+  }
 }
 
 function setMaskEnabled(next: boolean) {
   maskEnabled = next
   localStorage.setItem('xedoc-hands-mask-enabled', String(next))
+
+  if (!next) {
+    resetFaceSwapFrame()
+  }
+
+  updateMaskState()
+}
+
+function setFaceTrackingEnabled(next: boolean) {
+  faceTrackingEnabled = next
+  localStorage.setItem('xedoc-hands-face-tracking', next ? 'on' : 'off')
+  faceTrackingToggle.checked = next
+  faceTrackingState.textContent = next ? 'Трекинг и маркеры включены' : 'Трекинг и маркеры выключены'
+
+  if (!next) {
+    faceCount.textContent = '0'
+    headSamples = []
+    resetMaskMotion()
+    setFaceState('idle', 'Откл.')
+    updateMaskState()
+    return
+  }
+
+  setFaceState('idle', isRunning ? 'Нет лица' : 'Ожидание')
+  updateMaskState()
+}
+
+function setMaskMode(next: MaskMode) {
+  maskMode = next
+  localStorage.setItem('xedoc-hands-mask-mode', next)
+  renderMaskModeTabs()
+  resetMaskMotion()
+  resetFaceSwapFrame()
   updateMaskState()
 }
 
@@ -1773,18 +2013,37 @@ function setMaskStability(next: number) {
 }
 
 function updateMaskState() {
-  const hasImage = Boolean(maskLayer && maskImageUrl)
+  const hasImage = Boolean(maskImageUrl && maskSourceBlob)
+  const meshReady = Boolean(maskLayer)
+  const canEnable = hasImage && (maskMode === 'faceswap' || meshReady)
 
-  maskToggle.disabled = !hasImage
-  maskToggle.checked = hasImage && maskEnabled
+  maskToggle.disabled = !canEnable
+  maskToggle.checked = canEnable && maskEnabled
   maskPreview.classList.toggle('is-visible', hasImage)
+  maskStabilityBlock.classList.toggle('is-hidden', maskMode !== 'mesh')
+  faceSwapOptions.classList.toggle('is-hidden', maskMode !== 'faceswap')
 
   if (!hasImage) {
     maskState.textContent = 'Не выбрана'
     return
   }
 
-  maskState.textContent = maskEnabled ? 'Включена' : 'Выключена'
+  if (maskMode === 'mesh' && !meshReady) {
+    maskState.textContent = 'Лицо не найдено'
+    return
+  }
+
+  if (maskMode === 'mesh' && !faceTrackingEnabled && maskEnabled) {
+    maskState.textContent = 'Трекинг лица выключен'
+    return
+  }
+
+  if (!maskEnabled) {
+    maskState.textContent = 'Выключена'
+    return
+  }
+
+  maskState.textContent = maskMode === 'faceswap' ? 'FaceSwap включен' : 'Mesh включена'
 }
 
 function resetMaskMotion() {
@@ -1827,6 +2086,11 @@ function updateFps(now: number) {
 function readPreset(): PresetId {
   const saved = localStorage.getItem('xedoc-hands-preset')
   return saved && saved in presets ? (saved as PresetId) : 'browser'
+}
+
+function readMaskMode(): MaskMode {
+  const saved = localStorage.getItem('xedoc-hands-mask-mode')
+  return saved === 'faceswap' ? 'faceswap' : 'mesh'
 }
 
 function readMaskStability() {

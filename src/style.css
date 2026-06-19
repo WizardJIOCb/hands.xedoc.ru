@@ -148,6 +148,7 @@ svg {
 .event-row time,
 .gesture-tile em,
 .mask-state,
+.panel-state,
 .webhook-state,
 .strip-head p {
   color: var(--muted);
@@ -562,6 +563,10 @@ svg {
   margin-top: 8px;
 }
 
+.panel-state {
+  overflow-wrap: anywhere;
+}
+
 .mask-control {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -594,8 +599,40 @@ svg {
   white-space: nowrap;
 }
 
+.mask-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.mask-mode-button {
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: var(--surface-2);
+  font-size: 12px;
+  font-weight: 760;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.mask-mode-button.is-active {
+  border-color: rgba(47, 110, 211, 0.45);
+  color: #173e82;
+  background: var(--blue-soft);
+}
+
 .mask-stability {
   margin-top: 12px;
+}
+
+.mask-stability.is-hidden,
+.faceswap-options.is-hidden {
+  display: none;
 }
 
 .mask-stability-head,
@@ -629,6 +666,14 @@ svg {
   color: var(--muted);
   font-size: 11px;
   font-weight: 680;
+}
+
+.faceswap-options {
+  margin-top: 12px;
+}
+
+.faceswap-options .panel-state {
+  margin-top: 8px;
 }
 
 .mask-preview {
