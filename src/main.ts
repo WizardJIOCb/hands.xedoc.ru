@@ -538,6 +538,17 @@ app.innerHTML = `
 
         <section class="panel">
           <div class="panel-head">
+            <h2>Руки</h2>
+            <label class="switch">
+              <input id="handTrackingToggle" type="checkbox" checked />
+              <span></span>
+            </label>
+          </div>
+          <p class="panel-state" id="handTrackingState">Трекинг и маркеры включены</p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
             <h2>Лицо</h2>
             <label class="switch">
               <input id="faceTrackingToggle" type="checkbox" checked />
@@ -652,6 +663,8 @@ const cameraDot = getElement<HTMLSpanElement>('cameraDot')
 const cameraStatus = getElement<HTMLElement>('cameraStatus')
 const faceDot = getElement<HTMLSpanElement>('faceDot')
 const faceStatus = getElement<HTMLElement>('faceStatus')
+const handTrackingToggle = getElement<HTMLInputElement>('handTrackingToggle')
+const handTrackingState = getElement<HTMLElement>('handTrackingState')
 const faceTrackingToggle = getElement<HTMLInputElement>('faceTrackingToggle')
 const faceTrackingState = getElement<HTMLElement>('faceTrackingState')
 const currentGesture = getElement<HTMLElement>('currentGesture')
@@ -710,6 +723,7 @@ let isRunning = false
 let lastVideoTime = -1
 let currentPreset: PresetId = readPreset()
 let mirrorMode = localStorage.getItem('xedoc-hands-mirror') !== 'off'
+let handTrackingEnabled = localStorage.getItem('xedoc-hands-hand-tracking') !== 'off'
 let faceTrackingEnabled = localStorage.getItem('xedoc-hands-face-tracking') !== 'off'
 let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
 let maskMode: MaskMode = readMaskMode()
@@ -742,6 +756,7 @@ renderGestureGrid()
 renderMaskModeTabs()
 refreshIcons()
 setMirrorMode(mirrorMode)
+setHandTrackingEnabled(handTrackingEnabled)
 setFaceTrackingEnabled(faceTrackingEnabled)
 setMaskMode(maskMode)
 setMaskStability(maskStability)
@@ -771,6 +786,10 @@ testButton.addEventListener('click', () => {
 
 maskToggle.addEventListener('change', () => {
   setMaskEnabled(maskToggle.checked)
+})
+
+handTrackingToggle.addEventListener('change', () => {
+  setHandTrackingEnabled(handTrackingToggle.checked)
 })
 
 faceTrackingToggle.addEventListener('change', () => {
@@ -964,7 +983,7 @@ function stopCamera() {
   resetMaskMotion()
   resetFaceSwapFrame()
   faceCount.textContent = '0'
-  setReadout('Нет руки', 0, 0, 0, 0, 0)
+  setReadout(handTrackingEnabled ? 'Нет руки' : 'Руки выкл.', 0, 0, 0, 0, 0)
   setActiveGestures(new Set())
 }
 
@@ -977,7 +996,7 @@ function predictFrame(now: number) {
 
   if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.currentTime !== lastVideoTime) {
     lastVideoTime = video.currentTime
-    const handResult = recognizer.recognizeForVideo(video, now)
+    const handResult = handTrackingEnabled ? recognizer.recognizeForVideo(video, now) : null
     const faceResult = faceTrackingEnabled ? faceLandmarker.detectForVideo(video, now) : null
     processResult(handResult, faceResult, now)
     updateFps(now)
@@ -986,16 +1005,17 @@ function predictFrame(now: number) {
   requestAnimationFrame(predictFrame)
 }
 
-function processResult(result: GestureRecognizerResult, faceResult: FaceLandmarkerResult | null, now: number) {
+function processResult(result: GestureRecognizerResult | null, faceResult: FaceLandmarkerResult | null, now: number) {
   context.clearRect(0, 0, canvas.width, canvas.height)
   updateFaceSwapBridge(now)
   drawFaceSwapFrame()
 
   const detected = new Set<GestureKey>()
-  const topGesture = result.gestures[0]?.[0]
+  const handLandmarks = handTrackingEnabled ? (result?.landmarks ?? []) : []
+  const topGesture = handTrackingEnabled ? result?.gestures[0]?.[0] : undefined
   const topScore = topGesture?.score ?? 0
   const modelGesture = topGesture?.categoryName ?? 'None'
-  const landmarks = result.landmarks[0]
+  const landmarks = handLandmarks[0]
 
   if (faceTrackingEnabled && faceResult) {
     processFaceResult(faceResult, now, detected)
@@ -1006,7 +1026,7 @@ function processResult(result: GestureRecognizerResult, faceResult: FaceLandmark
     setFaceState('idle', faceTrackingEnabled ? 'Нет лица' : 'Откл.')
   }
 
-  for (const hand of result.landmarks) {
+  for (const hand of handLandmarks) {
     drawingUtils.drawConnectors(hand, GestureRecognizer.HAND_CONNECTIONS, {
       color: 'rgba(74, 222, 128, 0.9)',
       lineWidth: 4,
@@ -1019,7 +1039,7 @@ function processResult(result: GestureRecognizerResult, faceResult: FaceLandmark
     })
   }
 
-  if (isGestureKey(modelGesture) && topScore > 0.58) {
+  if (handTrackingEnabled && isGestureKey(modelGesture) && topScore > 0.58) {
     detected.add(modelGesture)
     fireGesture(modelGesture, topScore, 'model')
   }
@@ -1027,7 +1047,7 @@ function processResult(result: GestureRecognizerResult, faceResult: FaceLandmark
   let pinchStrength = 0
   let motionStrength = 0
 
-  if (landmarks) {
+  if (handTrackingEnabled && landmarks) {
     const pinch = updatePinch(landmarks, now)
     pinchStrength = pinch.strength
 
@@ -1043,22 +1063,20 @@ function processResult(result: GestureRecognizerResult, faceResult: FaceLandmark
     motionStrength = updateMotion(landmarks, now)
     updateCursor(landmarks)
   } else {
-    pinchDown = false
-    pinchStartedAt = null
-    pinchHoldDown = false
-    motionSamples = []
-    cursorDot.classList.remove('is-visible')
+    resetHandTracking()
   }
 
-  updateZoom(result.landmarks, now, detected)
+  updateZoom(handLandmarks, now, detected)
   setActiveGestures(detected)
 
   const gestureTitle =
     detected.size > 0
       ? [...detected].map((gesture) => gestureTitleFor(gesture)).join(' + ')
-      : 'Нет руки'
+      : handTrackingEnabled
+        ? 'Нет руки'
+        : 'Руки выкл.'
 
-  setReadout(gestureTitle, topScore, result.landmarks.length, pinchStrength, motionStrength, detected.size)
+  setReadout(gestureTitle, topScore, handLandmarks.length, pinchStrength, motionStrength, detected.size)
 }
 
 function updatePinch(landmarks: NormalizedLandmark[], now: number) {
@@ -1977,6 +1995,24 @@ function setMaskEnabled(next: boolean) {
   updateMaskState()
 }
 
+function setHandTrackingEnabled(next: boolean) {
+  handTrackingEnabled = next
+  localStorage.setItem('xedoc-hands-hand-tracking', next ? 'on' : 'off')
+  handTrackingToggle.checked = next
+  handTrackingState.textContent = next ? 'Трекинг и маркеры включены' : 'Трекинг и маркеры выключены'
+  resetHandTracking()
+
+  if (!next) {
+    setReadout('Руки выкл.', 0, 0, 0, 0, 0)
+    setActiveGestures(new Set())
+    return
+  }
+
+  if (!isRunning) {
+    setReadout('Нет руки', 0, 0, 0, 0, 0)
+  }
+}
+
 function setFaceTrackingEnabled(next: boolean) {
   faceTrackingEnabled = next
   localStorage.setItem('xedoc-hands-face-tracking', next ? 'on' : 'off')
@@ -2050,6 +2086,15 @@ function resetMaskMotion() {
   previousMaskFaceLandmarks = null
   displayedMaskFaceLandmarks = null
   previousMaskFaceAt = 0
+}
+
+function resetHandTracking() {
+  pinchDown = false
+  pinchStartedAt = null
+  pinchHoldDown = false
+  motionSamples = []
+  zoomSamples = []
+  cursorDot.classList.remove('is-visible')
 }
 
 function setMirrorMode(next: boolean) {
