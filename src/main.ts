@@ -1422,7 +1422,7 @@ function getMaskRenderTriangles(layer: FaceMaskLayer, landmarks: NormalizedLandm
     const sourcePoints = source.map((landmark) => landmarkToSourcePoint(landmark, layer))
     const targetPoints = target.map(landmarkToCanvasPoint)
 
-    if (Math.abs(triangleArea(sourcePoints)) < 0.5 || Math.abs(triangleArea(targetPoints)) < 0.08) {
+    if (Math.abs(triangleArea(sourcePoints)) < 0.05 || Math.abs(triangleArea(targetPoints)) < 0.008) {
       continue
     }
 
@@ -1626,7 +1626,7 @@ function drawWarpedTriangle(
 ) {
   const [s0, s1, s2] = source
   const [t0, t1, t2] = target
-  const clip = expandTriangle(target, 1.8)
+  const clip = expandTriangle(target, 2.6)
   const determinant = s0.x * (s1.y - s2.y) + s1.x * (s2.y - s0.y) + s2.x * (s0.y - s1.y)
 
   if (Math.abs(determinant) < 0.001) {
