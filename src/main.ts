@@ -22,6 +22,7 @@ import {
   Radio,
   Redo2,
   ScanLine,
+  ThumbsDown,
   ThumbsUp,
   Undo2,
   Waypoints,
@@ -39,6 +40,7 @@ type GestureKey =
   | 'Open_Palm'
   | 'Closed_Fist'
   | 'Victory'
+  | 'Thumb_Down'
   | 'Thumb_Up'
   | 'ILoveYou'
   | 'Swipe_Left'
@@ -93,6 +95,7 @@ const usedIcons = {
   Radio,
   Redo2,
   ScanLine,
+  ThumbsDown,
   ThumbsUp,
   Undo2,
   Waypoints,
@@ -108,6 +111,7 @@ const gestureDefinitions: GestureDefinition[] = [
   { key: 'Open_Palm', title: 'Ладонь', signal: 'MediaPipe', icon: 'hand' },
   { key: 'Closed_Fist', title: 'Кулак', signal: 'MediaPipe', icon: 'hand-fist' },
   { key: 'Victory', title: 'Два пальца', signal: 'MediaPipe', icon: 'badge-check' },
+  { key: 'Thumb_Down', title: 'Палец вниз', signal: 'MediaPipe', icon: 'thumbs-down' },
   { key: 'Thumb_Up', title: 'Палец вверх', signal: 'MediaPipe', icon: 'thumbs-up' },
   { key: 'ILoveYou', title: 'Рок-жест', signal: 'MediaPipe', icon: 'hand-metal' },
   { key: 'Swipe_Left', title: 'Свайп влево', signal: 'Motion', icon: 'undo-2' },
@@ -135,6 +139,7 @@ const presets: Record<
       Open_Palm: 'Пауза курсора',
       Closed_Fist: 'Захват окна',
       Victory: 'Правый клик',
+      Thumb_Down: 'Esc',
       Thumb_Up: 'Enter',
       ILoveYou: 'Скриншот области',
       Swipe_Left: 'Назад',
@@ -152,6 +157,7 @@ const presets: Record<
       Open_Palm: 'Показать баннер',
       Closed_Fist: 'Микрофон mute',
       Victory: 'Музыка play/pause',
+      Thumb_Down: 'Скрыть баннер',
       Thumb_Up: 'Следующая сцена OBS',
       ILoveYou: 'Клип-анимация',
       Swipe_Left: 'Предыдущая сцена',
@@ -169,6 +175,7 @@ const presets: Record<
       Open_Palm: 'Вызвать агента',
       Closed_Fist: 'Диктовка',
       Victory: 'Палитра инструментов',
+      Thumb_Down: 'Отменить',
       Thumb_Up: 'Подтвердить',
       ILoveYou: 'Голосовой диалог',
       Swipe_Left: 'Предыдущий ответ',
@@ -186,6 +193,7 @@ const presets: Record<
       Open_Palm: 'Панорамирование',
       Closed_Fist: 'Перетащить узел',
       Victory: 'Открыть чат узла',
+      Thumb_Down: 'Остановить агента',
       Thumb_Up: 'Запустить агента',
       ILoveYou: 'Раскрыть соседей',
       Swipe_Left: 'К прошлому узлу',
@@ -203,6 +211,7 @@ const presets: Record<
       Open_Palm: 'Выключить все',
       Closed_Fist: 'Сценарий стрим',
       Victory: 'Музыка в комнате',
+      Thumb_Down: 'Свет выкл.',
       Thumb_Up: 'Свет toggle',
       ILoveYou: 'Кино-режим',
       Swipe_Left: 'Предыдущая сцена',
