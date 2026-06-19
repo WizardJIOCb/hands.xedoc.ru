@@ -621,7 +621,7 @@ app.innerHTML = `
               <label class="input-label" for="maskEdgeFeather">Мягкий край</label>
               <strong id="maskEdgeFeatherValue">18px</strong>
             </div>
-            <input id="maskEdgeFeather" class="range-input" type="range" min="0" max="40" step="1" value="18" />
+            <input id="maskEdgeFeather" class="range-input" type="range" min="0" max="80" step="1" value="18" />
             <div class="range-captions">
               <span>Жёстче</span>
               <span>Мягче</span>
@@ -1493,21 +1493,50 @@ function averageTriangleZ(landmarks: NormalizedLandmark[]) {
 }
 
 function applyRenderedMaskFeather() {
-  const blur = maskEdgeFeather
+  const blur = Math.round(maskEdgeFeather)
 
   if (blur <= 0) {
     return
   }
 
+  const erosion = Math.max(1, Math.round(blur * 1.05))
+  const diagonal = Math.max(1, Math.round(erosion * 0.7))
+  const offsets: Point2D[] = [
+    { x: erosion, y: 0 },
+    { x: -erosion, y: 0 },
+    { x: 0, y: erosion },
+    { x: 0, y: -erosion },
+    { x: diagonal, y: diagonal },
+    { x: diagonal, y: -diagonal },
+    { x: -diagonal, y: diagonal },
+    { x: -diagonal, y: -diagonal },
+  ]
+
+  maskAlphaContext.clearRect(0, 0, maskAlphaCanvas.width, maskAlphaCanvas.height)
+  maskAlphaContext.drawImage(maskRenderCanvas, 0, 0)
+
   maskFeatherContext.clearRect(0, 0, maskFeatherCanvas.width, maskFeatherCanvas.height)
   maskFeatherContext.save()
-  maskFeatherContext.filter = `blur(${blur}px)`
-  maskFeatherContext.drawImage(maskRenderCanvas, 0, 0)
+  maskFeatherContext.drawImage(maskAlphaCanvas, 0, 0)
+  maskFeatherContext.globalCompositeOperation = 'destination-in'
+
+  for (const offset of offsets) {
+    maskFeatherContext.drawImage(maskAlphaCanvas, offset.x, offset.y)
+  }
+
   maskFeatherContext.restore()
+
+  maskAlphaContext.clearRect(0, 0, maskAlphaCanvas.width, maskAlphaCanvas.height)
+  maskAlphaContext.save()
+  maskAlphaContext.filter = `blur(${blur}px)`
+  maskAlphaContext.drawImage(maskFeatherCanvas, 0, 0)
+  maskAlphaContext.restore()
 
   maskRenderContext.save()
   maskRenderContext.globalCompositeOperation = 'destination-in'
-  maskRenderContext.drawImage(maskFeatherCanvas, 0, 0)
+  // Applying the same inner feather twice makes the outer seam fade close to zero alpha.
+  maskRenderContext.drawImage(maskAlphaCanvas, 0, 0)
+  maskRenderContext.drawImage(maskAlphaCanvas, 0, 0)
   maskRenderContext.restore()
 }
 
@@ -2210,7 +2239,7 @@ function setMaskStability(next: number) {
 }
 
 function setMaskEdgeFeather(next: number) {
-  maskEdgeFeather = clamp(Math.round(next), 0, 40)
+  maskEdgeFeather = clamp(Math.round(next), 0, 80)
   localStorage.setItem('xedoc-hands-mask-edge-feather', String(maskEdgeFeather))
   maskEdgeFeatherSlider.value = String(maskEdgeFeather)
   maskEdgeFeatherValue.textContent = `${maskEdgeFeather}px`
@@ -2349,7 +2378,7 @@ function readMaskStability() {
 function readMaskEdgeFeather() {
   const raw = localStorage.getItem('xedoc-hands-mask-edge-feather')
   const saved = raw === null ? Number.NaN : Number(raw)
-  return Number.isFinite(saved) ? clamp(Math.round(saved), 0, 40) : performanceMode === 'performance' ? 12 : 18
+  return Number.isFinite(saved) ? clamp(Math.round(saved), 0, 80) : performanceMode === 'performance' ? 12 : 18
 }
 
 function getElement<T extends HTMLElement>(id: string) {
