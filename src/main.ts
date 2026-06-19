@@ -732,6 +732,8 @@ const maskRenderCanvas = document.createElement('canvas')
 const maskRenderContext = getCanvasContext(maskRenderCanvas)
 const maskAlphaCanvas = document.createElement('canvas')
 const maskAlphaContext = getCanvasContext(maskAlphaCanvas)
+const maskFeatherCanvas = document.createElement('canvas')
+const maskFeatherContext = getCanvasContext(maskFeatherCanvas)
 const faceSwapCaptureCanvas = document.createElement('canvas')
 const faceSwapCaptureContext = getCanvasContext(faceSwapCaptureCanvas)
 const faceSwapRequestIntervalMs = 180
@@ -1429,6 +1431,7 @@ function drawFaceMask(landmarks: NormalizedLandmark[]) {
   }
 
   maskRenderContext.restore()
+  applyRenderedMaskFeather()
   applySoftFaceMask(landmarks)
 
   context.save()
@@ -1467,6 +1470,21 @@ function getMaskRenderTriangles(layer: FaceMaskLayer, landmarks: NormalizedLandm
 
 function averageTriangleZ(landmarks: NormalizedLandmark[]) {
   return landmarks.reduce((sum, landmark) => sum + (landmark.z ?? 0), 0) / landmarks.length
+}
+
+function applyRenderedMaskFeather() {
+  const blur = performanceMode === 'performance' ? 5 : 9
+
+  maskFeatherContext.clearRect(0, 0, maskFeatherCanvas.width, maskFeatherCanvas.height)
+  maskFeatherContext.save()
+  maskFeatherContext.filter = `blur(${blur}px)`
+  maskFeatherContext.drawImage(maskRenderCanvas, 0, 0)
+  maskFeatherContext.restore()
+
+  maskRenderContext.save()
+  maskRenderContext.globalCompositeOperation = 'destination-in'
+  maskRenderContext.drawImage(maskFeatherCanvas, 0, 0)
+  maskRenderContext.restore()
 }
 
 function compensateMaskLag(landmarks: NormalizedLandmark[], now: number) {
@@ -1782,6 +1800,8 @@ function syncMaskCanvases() {
     maskRenderCanvas.height = canvas.height
     maskAlphaCanvas.width = canvas.width
     maskAlphaCanvas.height = canvas.height
+    maskFeatherCanvas.width = canvas.width
+    maskFeatherCanvas.height = canvas.height
   }
 }
 
