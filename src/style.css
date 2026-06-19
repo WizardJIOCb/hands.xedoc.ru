@@ -311,9 +311,9 @@ svg {
   bottom: 12px;
   z-index: 5;
   display: grid;
-  grid-template-columns: minmax(130px, 1fr) 72px 72px;
+  grid-template-columns: minmax(130px, 1fr) 72px 72px 72px;
   gap: 8px;
-  width: min(430px, calc(100% - 24px));
+  width: min(510px, calc(100% - 24px));
 }
 
 .hud > div {
@@ -403,7 +403,7 @@ svg {
 
 .status-panel {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -756,7 +756,7 @@ svg {
   .hud {
     right: 8px;
     bottom: 8px;
-    grid-template-columns: 1fr 58px 58px;
+    grid-template-columns: 1fr 54px 54px 54px;
     width: calc(100% - 16px);
   }
 

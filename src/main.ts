@@ -1,8 +1,11 @@
 import './style.css'
 import {
   DrawingUtils,
+  FaceLandmarker,
   FilesetResolver,
   GestureRecognizer,
+  type Category,
+  type FaceLandmarkerResult,
   type GestureRecognizerResult,
   type NormalizedLandmark,
 } from '@mediapipe/tasks-vision'
@@ -11,20 +14,30 @@ import {
   ArrowUp,
   BadgeCheck,
   Bot,
+  ChevronsUp,
   CircleCheck,
+  CircleDot,
   Copy,
   Crosshair,
   createIcons,
+  EyeClosed,
   FlipHorizontal2,
   Hand,
   HandFist,
   HandMetal,
   House,
+  MessageCircle,
   MonitorDot,
+  MoveDown,
+  MoveLeft,
+  MoveRight,
+  MoveUp,
   MousePointer2,
   Radio,
   Redo2,
+  ScanEye,
   ScanLine,
+  Smile,
   Target,
   ThumbsDown,
   ThumbsUp,
@@ -61,6 +74,17 @@ type GestureKey =
   | 'Palm_Down'
   | 'Zoom_In'
   | 'Zoom_Out'
+  | 'Smile'
+  | 'Mouth_Open'
+  | 'Blink_Left'
+  | 'Blink_Right'
+  | 'Brows_Up'
+  | 'Head_Left'
+  | 'Head_Right'
+  | 'Head_Up'
+  | 'Head_Down'
+  | 'Nod'
+  | 'Shake'
 
 type GestureDefinition = {
   key: GestureKey
@@ -78,7 +102,7 @@ type GestureEvent = {
   preset: PresetId
   action: string
   confidence: number
-  source: 'model' | 'landmarks' | 'motion' | 'manual'
+  source: 'model' | 'landmarks' | 'motion' | 'face' | 'manual'
   at: string
   details?: Record<string, number | string | boolean>
 }
@@ -89,29 +113,47 @@ type MotionSample = {
   t: number
 }
 
+type HeadSample = {
+  yaw: number
+  pitch: number
+  t: number
+}
+
 const tasksVersion = '0.10.35'
 const wasmPath = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${tasksVersion}/wasm`
 const gestureModelPath =
   'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task'
+const faceModelPath =
+  'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task'
 
 const usedIcons = {
   ArrowDown,
   ArrowUp,
   BadgeCheck,
   Bot,
+  ChevronsUp,
   CircleCheck,
+  CircleDot,
   Copy,
   Crosshair,
   FlipHorizontal2,
+  EyeClosed,
   Hand,
   HandFist,
   HandMetal,
   House,
+  MessageCircle,
   MonitorDot,
+  MoveDown,
+  MoveLeft,
+  MoveRight,
+  MoveUp,
   MousePointer2,
   Radio,
   Redo2,
+  ScanEye,
   ScanLine,
+  Smile,
   Target,
   ThumbsDown,
   ThumbsUp,
@@ -146,6 +188,17 @@ const gestureDefinitions: GestureDefinition[] = [
   { key: 'Palm_Down', title: 'Пальцы вниз', signal: 'Landmarks', icon: 'arrow-down' },
   { key: 'Zoom_In', title: 'Развести руки', signal: 'Two hands', icon: 'zoom-in' },
   { key: 'Zoom_Out', title: 'Свести руки', signal: 'Two hands', icon: 'zoom-out' },
+  { key: 'Smile', title: 'Улыбка', signal: 'Face', icon: 'smile' },
+  { key: 'Mouth_Open', title: 'Открыть рот', signal: 'Face', icon: 'message-circle' },
+  { key: 'Blink_Left', title: 'Левый морг', signal: 'Face', icon: 'eye-closed' },
+  { key: 'Blink_Right', title: 'Правый морг', signal: 'Face', icon: 'eye-closed' },
+  { key: 'Brows_Up', title: 'Брови вверх', signal: 'Face', icon: 'chevrons-up' },
+  { key: 'Head_Left', title: 'Голова влево', signal: 'Face pose', icon: 'move-left' },
+  { key: 'Head_Right', title: 'Голова вправо', signal: 'Face pose', icon: 'move-right' },
+  { key: 'Head_Up', title: 'Голова вверх', signal: 'Face pose', icon: 'move-up' },
+  { key: 'Head_Down', title: 'Голова вниз', signal: 'Face pose', icon: 'move-down' },
+  { key: 'Nod', title: 'Кивок', signal: 'Face motion', icon: 'circle-dot' },
+  { key: 'Shake', title: 'Покачать головой', signal: 'Face motion', icon: 'scan-eye' },
 ]
 
 const gestureKeys = new Set(gestureDefinitions.map((gesture) => gesture.key))
@@ -183,6 +236,17 @@ const presets: Record<
       Palm_Down: 'Скрыть меню',
       Zoom_In: 'Увеличить',
       Zoom_Out: 'Уменьшить',
+      Smile: 'Подтвердить',
+      Mouth_Open: 'Голосовой ввод',
+      Blink_Left: 'Назад',
+      Blink_Right: 'Вперед',
+      Brows_Up: 'Показать меню',
+      Head_Left: 'Вкладка назад',
+      Head_Right: 'Вкладка вперед',
+      Head_Up: 'Прокрутка вверх',
+      Head_Down: 'Прокрутка вниз',
+      Nod: 'Да',
+      Shake: 'Нет',
     },
   },
   stream: {
@@ -210,6 +274,17 @@ const presets: Record<
       Palm_Down: 'Опустить оверлей',
       Zoom_In: 'Увеличить камеру',
       Zoom_Out: 'Свернуть камеру',
+      Smile: 'Показать реакцию',
+      Mouth_Open: 'Включить голос',
+      Blink_Left: 'Сцена назад',
+      Blink_Right: 'Сцена вперед',
+      Brows_Up: 'Показать чат',
+      Head_Left: 'Предыдущий клип',
+      Head_Right: 'Следующий клип',
+      Head_Up: 'Громкость выше',
+      Head_Down: 'Громкость ниже',
+      Nod: 'Принять',
+      Shake: 'Отклонить',
     },
   },
   agent: {
@@ -237,6 +312,17 @@ const presets: Record<
       Palm_Down: 'Свернуть контекст',
       Zoom_In: 'Расширить контекст',
       Zoom_Out: 'Сжать контекст',
+      Smile: 'Одобрить',
+      Mouth_Open: 'Голосовой агент',
+      Blink_Left: 'Шаг назад',
+      Blink_Right: 'Шаг вперед',
+      Brows_Up: 'Инструменты',
+      Head_Left: 'Предыдущий вариант',
+      Head_Right: 'Следующий вариант',
+      Head_Up: 'Развернуть',
+      Head_Down: 'Свернуть',
+      Nod: 'Да',
+      Shake: 'Нет',
     },
   },
   graph: {
@@ -264,6 +350,17 @@ const presets: Record<
       Palm_Down: 'Опустить узел',
       Zoom_In: 'Зум графа плюс',
       Zoom_Out: 'Зум графа минус',
+      Smile: 'Закрепить',
+      Mouth_Open: 'Чат узла',
+      Blink_Left: 'Узел назад',
+      Blink_Right: 'Узел вперед',
+      Brows_Up: 'Меню графа',
+      Head_Left: 'Панорама влево',
+      Head_Right: 'Панорама вправо',
+      Head_Up: 'Панорама вверх',
+      Head_Down: 'Панорама вниз',
+      Nod: 'Создать связь',
+      Shake: 'Удалить связь',
     },
   },
   home: {
@@ -291,6 +388,17 @@ const presets: Record<
       Palm_Down: 'Шторы вниз',
       Zoom_In: 'Яркость выше',
       Zoom_Out: 'Яркость ниже',
+      Smile: 'Сцена уют',
+      Mouth_Open: 'Голос дома',
+      Blink_Left: 'Сцена назад',
+      Blink_Right: 'Сцена вперед',
+      Brows_Up: 'Показать панели',
+      Head_Left: 'Зона влево',
+      Head_Right: 'Зона вправо',
+      Head_Up: 'Яркость выше',
+      Head_Down: 'Яркость ниже',
+      Nod: 'Включить',
+      Shake: 'Выключить',
     },
   },
 }
@@ -350,6 +458,10 @@ app.innerHTML = `
               <span class="hud-label">Руки</span>
               <strong id="handCount">0</strong>
             </div>
+            <div>
+              <span class="hud-label">Лицо</span>
+              <strong id="faceCount">0</strong>
+            </div>
           </div>
         </div>
 
@@ -392,6 +504,13 @@ app.innerHTML = `
             <div>
               <span class="label">Камера</span>
               <strong id="cameraStatus">Ожидание</strong>
+            </div>
+          </div>
+          <div class="status-line">
+            <span class="status-dot" id="faceDot"></span>
+            <div>
+              <span class="label">Лицо</span>
+              <strong id="faceStatus">Ожидание</strong>
             </div>
           </div>
         </section>
@@ -460,9 +579,12 @@ const modelDot = getElement<HTMLSpanElement>('modelDot')
 const modelStatus = getElement<HTMLElement>('modelStatus')
 const cameraDot = getElement<HTMLSpanElement>('cameraDot')
 const cameraStatus = getElement<HTMLElement>('cameraStatus')
+const faceDot = getElement<HTMLSpanElement>('faceDot')
+const faceStatus = getElement<HTMLElement>('faceStatus')
 const currentGesture = getElement<HTMLElement>('currentGesture')
 const fpsValue = getElement<HTMLElement>('fpsValue')
 const handCount = getElement<HTMLElement>('handCount')
+const faceCount = getElement<HTMLElement>('faceCount')
 const confidenceValue = getElement<HTMLElement>('confidenceValue')
 const confidenceMeter = getElement<HTMLSpanElement>('confidenceMeter')
 const pinchValue = getElement<HTMLElement>('pinchValue')
@@ -488,6 +610,7 @@ if (!canvasContext) {
 const context: CanvasRenderingContext2D = canvasContext
 const drawingUtils = new DrawingUtils(context)
 let recognizer: GestureRecognizer | null = null
+let faceLandmarker: FaceLandmarker | null = null
 let stream: MediaStream | null = null
 let isRunning = false
 let lastVideoTime = -1
@@ -502,6 +625,7 @@ let pinchStartedAt: number | null = null
 let pinchHoldDown = false
 let motionSamples: MotionSample[] = []
 let zoomSamples: MotionSample[] = []
+let headSamples: HeadSample[] = []
 const eventHistory: GestureEvent[] = []
 const cooldowns = new Map<GestureKey, number>()
 
@@ -511,6 +635,7 @@ refreshIcons()
 setMirrorMode(mirrorMode)
 setModelState('loading', 'Загрузка')
 setCameraState('idle', 'Ожидание')
+setFaceState('idle', 'Ожидание')
 void bootModel()
 
 cameraButton.addEventListener('click', () => {
@@ -559,32 +684,52 @@ async function bootModel() {
   try {
     const vision = await FilesetResolver.forVisionTasks(wasmPath)
 
-    recognizer = await GestureRecognizer.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetPath: gestureModelPath,
-        delegate: 'GPU',
-      },
-      runningMode: 'VIDEO',
-      numHands: 2,
-      minHandDetectionConfidence: 0.55,
-      minHandPresenceConfidence: 0.55,
-      minTrackingConfidence: 0.55,
-    })
+    const [handTask, faceTask] = await Promise.all([
+      GestureRecognizer.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: gestureModelPath,
+          delegate: 'GPU',
+        },
+        runningMode: 'VIDEO',
+        numHands: 2,
+        minHandDetectionConfidence: 0.55,
+        minHandPresenceConfidence: 0.55,
+        minTrackingConfidence: 0.55,
+      }),
+      FaceLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: faceModelPath,
+          delegate: 'GPU',
+        },
+        runningMode: 'VIDEO',
+        numFaces: 1,
+        outputFaceBlendshapes: true,
+        outputFacialTransformationMatrixes: true,
+        minFaceDetectionConfidence: 0.55,
+        minFacePresenceConfidence: 0.55,
+        minTrackingConfidence: 0.55,
+      }),
+    ])
 
-    setModelState('ready', 'Готова')
+    recognizer = handTask
+    faceLandmarker = faceTask
+
+    setModelState('ready', 'Готовы')
+    setFaceState('idle', 'Нет лица')
   } catch (error) {
     console.error(error)
     setModelState('error', 'Ошибка')
+    setFaceState('error', 'Ошибка')
   }
 }
 
 async function startCamera() {
-  if (!recognizer) {
+  if (!recognizer || !faceLandmarker) {
     setCameraState('loading', 'Ждем модель')
     await bootModel()
   }
 
-  if (!recognizer) {
+  if (!recognizer || !faceLandmarker) {
     setCameraState('error', 'Модель недоступна')
     return
   }
@@ -619,6 +764,7 @@ function stopCamera() {
   lastVideoTime = -1
   motionSamples = []
   zoomSamples = []
+  headSamples = []
   pinchDown = false
   pinchStartedAt = null
   pinchHoldDown = false
@@ -631,12 +777,14 @@ function stopCamera() {
   cameraButton.classList.remove('is-active')
   cameraButton.querySelector('span')!.textContent = 'Камера'
   setCameraState('idle', 'Ожидание')
+  setFaceState('idle', 'Ожидание')
+  faceCount.textContent = '0'
   setReadout('Нет руки', 0, 0, 0, 0, 0)
   setActiveGestures(new Set())
 }
 
 function predictFrame(now: number) {
-  if (!isRunning || !recognizer) {
+  if (!isRunning || !recognizer || !faceLandmarker) {
     return
   }
 
@@ -644,15 +792,16 @@ function predictFrame(now: number) {
 
   if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.currentTime !== lastVideoTime) {
     lastVideoTime = video.currentTime
-    const result = recognizer.recognizeForVideo(video, now)
-    processResult(result, now)
+    const handResult = recognizer.recognizeForVideo(video, now)
+    const faceResult = faceLandmarker.detectForVideo(video, now)
+    processResult(handResult, faceResult, now)
     updateFps(now)
   }
 
   requestAnimationFrame(predictFrame)
 }
 
-function processResult(result: GestureRecognizerResult, now: number) {
+function processResult(result: GestureRecognizerResult, faceResult: FaceLandmarkerResult, now: number) {
   context.clearRect(0, 0, canvas.width, canvas.height)
 
   const detected = new Set<GestureKey>()
@@ -660,6 +809,8 @@ function processResult(result: GestureRecognizerResult, now: number) {
   const topScore = topGesture?.score ?? 0
   const modelGesture = topGesture?.categoryName ?? 'None'
   const landmarks = result.landmarks[0]
+
+  processFaceResult(faceResult, now, detected)
 
   for (const hand of result.landmarks) {
     drawingUtils.drawConnectors(hand, GestureRecognizer.HAND_CONNECTIONS, {
@@ -865,6 +1016,170 @@ function updateZoom(hands: NormalizedLandmark[][], now: number, detected: Set<Ge
   }
 }
 
+function processFaceResult(result: FaceLandmarkerResult, now: number, detected: Set<GestureKey>) {
+  const face = result.faceLandmarks[0]
+  faceCount.textContent = String(result.faceLandmarks.length)
+
+  if (!face) {
+    setFaceState('idle', 'Нет лица')
+    headSamples = []
+    return
+  }
+
+  setFaceState('ready', 'В кадре')
+  drawFace(face)
+
+  const categories = result.faceBlendshapes[0]?.categories ?? []
+  const smile = (faceScore(categories, 'mouthSmileLeft') + faceScore(categories, 'mouthSmileRight')) / 2
+  const jawOpen = faceScore(categories, 'jawOpen')
+  const blinkLeft = faceScore(categories, 'eyeBlinkLeft')
+  const blinkRight = faceScore(categories, 'eyeBlinkRight')
+  const browsUp = Math.max(
+    faceScore(categories, 'browInnerUp'),
+    (faceScore(categories, 'browOuterUpLeft') + faceScore(categories, 'browOuterUpRight')) / 2,
+  )
+
+  if (smile > 0.35) {
+    fireFaceSignal('Smile', smile, detected, { smile: round(smile) })
+  }
+
+  if (jawOpen > 0.36) {
+    fireFaceSignal('Mouth_Open', jawOpen, detected, { jawOpen: round(jawOpen) })
+  }
+
+  if (blinkLeft > 0.55) {
+    fireFaceSignal('Blink_Left', blinkLeft, detected, { blinkLeft: round(blinkLeft) })
+  }
+
+  if (blinkRight > 0.55) {
+    fireFaceSignal('Blink_Right', blinkRight, detected, { blinkRight: round(blinkRight) })
+  }
+
+  if (browsUp > 0.34) {
+    fireFaceSignal('Brows_Up', browsUp, detected, { browsUp: round(browsUp) })
+  }
+
+  const pose = getHeadPose(face)
+
+  if (!pose) {
+    return
+  }
+
+  const yaw = mirrorMode ? -pose.yaw : pose.yaw
+  const pitch = pose.pitch
+  const yawStrength = clamp((Math.abs(yaw) - 0.17) / 0.22, 0, 1)
+  const pitchStrength = clamp((Math.abs(pitch) - 0.16) / 0.22, 0, 1)
+
+  if (yaw < -0.2) {
+    fireFaceSignal('Head_Left', yawStrength, detected, { yaw: round(yaw) })
+  } else if (yaw > 0.2) {
+    fireFaceSignal('Head_Right', yawStrength, detected, { yaw: round(yaw) })
+  }
+
+  if (pitch < -0.19) {
+    fireFaceSignal('Head_Up', pitchStrength, detected, { pitch: round(pitch) })
+  } else if (pitch > 0.19) {
+    fireFaceSignal('Head_Down', pitchStrength, detected, { pitch: round(pitch) })
+  }
+
+  headSamples.push({ yaw, pitch, t: now })
+  headSamples = headSamples.filter((sample) => now - sample.t <= 900)
+
+  if (headSamples.length < 5) {
+    return
+  }
+
+  const yawValues = headSamples.map((sample) => sample.yaw)
+  const pitchValues = headSamples.map((sample) => sample.pitch)
+  const minYaw = Math.min(...yawValues)
+  const maxYaw = Math.max(...yawValues)
+  const minPitch = Math.min(...pitchValues)
+  const maxPitch = Math.max(...pitchValues)
+  const yawRange = maxYaw - minYaw
+  const pitchRange = maxPitch - minPitch
+
+  if (pitchRange > 0.32 && minPitch < -0.11 && maxPitch > 0.11) {
+    fireFaceSignal('Nod', clamp((pitchRange - 0.28) / 0.3, 0, 1), detected, {
+      pitchRange: round(pitchRange),
+    })
+    headSamples = []
+  } else if (yawRange > 0.36 && minYaw < -0.13 && maxYaw > 0.13) {
+    fireFaceSignal('Shake', clamp((yawRange - 0.32) / 0.34, 0, 1), detected, {
+      yawRange: round(yawRange),
+    })
+    headSamples = []
+  }
+}
+
+function drawFace(landmarks: NormalizedLandmark[]) {
+  drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_FACE_OVAL, {
+    color: 'rgba(47, 110, 211, 0.88)',
+    lineWidth: 3,
+  })
+  drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYE, {
+    color: 'rgba(255, 255, 255, 0.82)',
+    lineWidth: 2,
+  })
+  drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, {
+    color: 'rgba(255, 255, 255, 0.82)',
+    lineWidth: 2,
+  })
+  drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW, {
+    color: 'rgba(74, 222, 128, 0.9)',
+    lineWidth: 2,
+  })
+  drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW, {
+    color: 'rgba(74, 222, 128, 0.9)',
+    lineWidth: 2,
+  })
+  drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LIPS, {
+    color: 'rgba(207, 122, 19, 0.9)',
+    lineWidth: 2,
+  })
+  drawingUtils.drawLandmarks([landmarks[1], landmarks[13], landmarks[14]], {
+    color: 'rgba(255, 255, 255, 0.95)',
+    fillColor: 'rgba(47, 110, 211, 0.72)',
+    lineWidth: 2,
+    radius: 3,
+  })
+}
+
+function fireFaceSignal(
+  gesture: GestureKey,
+  confidence: number,
+  detected: Set<GestureKey>,
+  details?: GestureEvent['details'],
+) {
+  detected.add(gesture)
+  fireGesture(gesture, confidence, 'face', details)
+}
+
+function faceScore(categories: Category[], name: string) {
+  return categories.find((category) => category.categoryName === name)?.score ?? 0
+}
+
+function getHeadPose(landmarks: NormalizedLandmark[]) {
+  const leftEye = landmarks[33]
+  const rightEye = landmarks[263]
+  const nose = landmarks[1]
+  const upperLip = landmarks[13]
+  const lowerLip = landmarks[14]
+
+  if (!leftEye || !rightEye || !nose || !upperLip || !lowerLip) {
+    return null
+  }
+
+  const eyeCenter = midpoint(leftEye, rightEye)
+  const mouthCenter = midpoint(upperLip, lowerLip)
+  const eyeDistance = Math.max(distance(leftEye, rightEye), 0.001)
+  const eyeToMouth = Math.max(distance(eyeCenter, mouthCenter), 0.001)
+
+  return {
+    yaw: (nose.x - eyeCenter.x) / eyeDistance,
+    pitch: (nose.y - eyeCenter.y) / eyeToMouth - 0.54,
+  }
+}
+
 function updateCursor(landmarks: NormalizedLandmark[]) {
   const pointer = landmarks[8]
   const x = mirrorMode ? 1 - pointer.x : pointer.x
@@ -1057,6 +1372,11 @@ function setCameraState(state: 'idle' | 'loading' | 'ready' | 'error', text: str
   cameraStatus.textContent = text
 }
 
+function setFaceState(state: 'idle' | 'loading' | 'ready' | 'error', text: string) {
+  faceDot.dataset.state = state
+  faceStatus.textContent = text
+}
+
 function setMirrorMode(next: boolean) {
   mirrorMode = next
   localStorage.setItem('xedoc-hands-mirror', next ? 'on' : 'off')
@@ -1154,6 +1474,15 @@ function handCenter(landmarks: NormalizedLandmark[]) {
     y: (wrist.y + middleBase.y) / 2,
     z: (wrist.z + middleBase.z) / 2,
     visibility: Math.min(wrist.visibility ?? 1, middleBase.visibility ?? 1),
+  }
+}
+
+function midpoint(a: NormalizedLandmark, b: NormalizedLandmark): NormalizedLandmark {
+  return {
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2,
+    z: (a.z + b.z) / 2,
+    visibility: Math.min(a.visibility ?? 1, b.visibility ?? 1),
   }
 }
 
