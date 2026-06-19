@@ -1631,12 +1631,12 @@ function drawWarpedTriangle(
 function applySoftFaceMask(landmarks: NormalizedLandmark[]) {
   maskAlphaContext.clearRect(0, 0, maskAlphaCanvas.width, maskAlphaCanvas.height)
   maskAlphaContext.save()
-  maskAlphaContext.filter = 'blur(16px)'
-  drawFaceOvalPath(maskAlphaContext, landmarks, 1.07)
+  maskAlphaContext.filter = 'blur(20px)'
+  drawFaceOvalPath(maskAlphaContext, landmarks, 1.11)
   maskAlphaContext.fillStyle = 'rgba(255, 255, 255, 0.98)'
   maskAlphaContext.fill()
   maskAlphaContext.filter = 'none'
-  drawFaceOvalPath(maskAlphaContext, landmarks, 0.97)
+  drawFaceOvalPath(maskAlphaContext, landmarks, 1.01)
   maskAlphaContext.fillStyle = '#fff'
   maskAlphaContext.fill()
   maskAlphaContext.restore()
@@ -1655,7 +1655,8 @@ function drawFaceOvalPath(targetContext: CanvasRenderingContext2D, landmarks: No
   }
 
   const center = polygonCenter(points)
-  const scaled = points.map((point) => scalePointFromCenter(point, center, scale))
+  const expansion = getFaceOvalExpansion(landmarks)
+  const scaled = points.map((point) => scaleFaceOvalPoint(point, center, scale, expansion))
   const firstPoint = scaled[0]
   const lastPoint = scaled[scaled.length - 1]
 
@@ -1671,6 +1672,35 @@ function drawFaceOvalPath(targetContext: CanvasRenderingContext2D, landmarks: No
   }
 
   targetContext.closePath()
+}
+
+function getFaceOvalExpansion(landmarks: NormalizedLandmark[]) {
+  const pose = getHeadPose(landmarks)
+  const yaw = pose?.yaw ?? 0
+  const pitch = pose?.pitch ?? 0
+  const turn = clamp((Math.abs(yaw) - 0.1) / 0.34, 0, 1)
+  const pitchLift = clamp(Math.abs(pitch) / 0.35, 0, 1)
+
+  return {
+    x: 1 + turn * 0.22,
+    y: 1 + turn * 0.08 + pitchLift * 0.04,
+    biasX: yaw * turn * 0.1 * canvas.width,
+  }
+}
+
+function scaleFaceOvalPoint(
+  point: Point2D,
+  center: Point2D,
+  scale: number,
+  expansion: { x: number; y: number; biasX: number },
+): Point2D {
+  const dx = point.x - center.x
+  const dy = point.y - center.y
+
+  return {
+    x: center.x + expansion.biasX + dx * scale * expansion.x,
+    y: center.y + dy * scale * expansion.y,
+  }
 }
 
 function syncMaskCanvases() {
@@ -2291,13 +2321,6 @@ function polygonCenter(points: Point2D[]): Point2D {
   return {
     x: sum.x / points.length,
     y: sum.y / points.length,
-  }
-}
-
-function scalePointFromCenter(point: Point2D, center: Point2D, scale: number): Point2D {
-  return {
-    x: center.x + (point.x - center.x) * scale,
-    y: center.y + (point.y - center.y) * scale,
   }
 }
 
