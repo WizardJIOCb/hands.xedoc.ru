@@ -7,8 +7,11 @@ import {
   type NormalizedLandmark,
 } from '@mediapipe/tasks-vision'
 import {
+  ArrowDown,
+  ArrowUp,
   BadgeCheck,
   Bot,
+  CircleCheck,
   Copy,
   Crosshair,
   createIcons,
@@ -22,8 +25,10 @@ import {
   Radio,
   Redo2,
   ScanLine,
+  Target,
   ThumbsDown,
   ThumbsUp,
+  Timer,
   Undo2,
   Waypoints,
   Webcam,
@@ -43,8 +48,17 @@ type GestureKey =
   | 'Thumb_Down'
   | 'Thumb_Up'
   | 'ILoveYou'
+  | 'OK_Gesture'
+  | 'Finger_Gun'
+  | 'Three_Fingers'
+  | 'Four_Fingers'
+  | 'Pinch_Hold'
   | 'Swipe_Left'
   | 'Swipe_Right'
+  | 'Swipe_Up'
+  | 'Swipe_Down'
+  | 'Palm_Up'
+  | 'Palm_Down'
   | 'Zoom_In'
   | 'Zoom_Out'
 
@@ -81,8 +95,11 @@ const gestureModelPath =
   'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task'
 
 const usedIcons = {
+  ArrowDown,
+  ArrowUp,
   BadgeCheck,
   Bot,
+  CircleCheck,
   Copy,
   Crosshair,
   FlipHorizontal2,
@@ -95,8 +112,10 @@ const usedIcons = {
   Radio,
   Redo2,
   ScanLine,
+  Target,
   ThumbsDown,
   ThumbsUp,
+  Timer,
   Undo2,
   Waypoints,
   Webcam,
@@ -114,8 +133,17 @@ const gestureDefinitions: GestureDefinition[] = [
   { key: 'Thumb_Down', title: 'Палец вниз', signal: 'MediaPipe', icon: 'thumbs-down' },
   { key: 'Thumb_Up', title: 'Палец вверх', signal: 'MediaPipe', icon: 'thumbs-up' },
   { key: 'ILoveYou', title: 'Рок-жест', signal: 'MediaPipe', icon: 'hand-metal' },
+  { key: 'OK_Gesture', title: 'OK', signal: 'Landmarks', icon: 'circle-check' },
+  { key: 'Finger_Gun', title: 'Пистолет', signal: 'Landmarks', icon: 'target' },
+  { key: 'Three_Fingers', title: 'Три пальца', signal: 'Landmarks', icon: 'badge-check' },
+  { key: 'Four_Fingers', title: 'Четыре пальца', signal: 'Landmarks', icon: 'hand' },
+  { key: 'Pinch_Hold', title: 'Щипок удержан', signal: 'Landmarks', icon: 'timer' },
   { key: 'Swipe_Left', title: 'Свайп влево', signal: 'Motion', icon: 'undo-2' },
   { key: 'Swipe_Right', title: 'Свайп вправо', signal: 'Motion', icon: 'redo-2' },
+  { key: 'Swipe_Up', title: 'Свайп вверх', signal: 'Motion', icon: 'arrow-up' },
+  { key: 'Swipe_Down', title: 'Свайп вниз', signal: 'Motion', icon: 'arrow-down' },
+  { key: 'Palm_Up', title: 'Пальцы вверх', signal: 'Landmarks', icon: 'arrow-up' },
+  { key: 'Palm_Down', title: 'Пальцы вниз', signal: 'Landmarks', icon: 'arrow-down' },
   { key: 'Zoom_In', title: 'Развести руки', signal: 'Two hands', icon: 'zoom-in' },
   { key: 'Zoom_Out', title: 'Свести руки', signal: 'Two hands', icon: 'zoom-out' },
 ]
@@ -142,8 +170,17 @@ const presets: Record<
       Thumb_Down: 'Esc',
       Thumb_Up: 'Enter',
       ILoveYou: 'Скриншот области',
+      OK_Gesture: 'Подтвердить',
+      Finger_Gun: 'Точный выбор',
+      Three_Fingers: 'Task view',
+      Four_Fingers: 'Все окна',
+      Pinch_Hold: 'Долгий клик',
       Swipe_Left: 'Назад',
       Swipe_Right: 'Вперед',
+      Swipe_Up: 'Прокрутка вверх',
+      Swipe_Down: 'Прокрутка вниз',
+      Palm_Up: 'Показать меню',
+      Palm_Down: 'Скрыть меню',
       Zoom_In: 'Увеличить',
       Zoom_Out: 'Уменьшить',
     },
@@ -160,8 +197,17 @@ const presets: Record<
       Thumb_Down: 'Скрыть баннер',
       Thumb_Up: 'Следующая сцена OBS',
       ILoveYou: 'Клип-анимация',
+      OK_Gesture: 'Показать OK',
+      Finger_Gun: 'Запустить эффект',
+      Three_Fingers: 'Сцена 3',
+      Four_Fingers: 'Сцена 4',
+      Pinch_Hold: 'Удержать маркер',
       Swipe_Left: 'Предыдущая сцена',
       Swipe_Right: 'Следующая сцена',
+      Swipe_Up: 'Громкость выше',
+      Swipe_Down: 'Громкость ниже',
+      Palm_Up: 'Поднять оверлей',
+      Palm_Down: 'Опустить оверлей',
       Zoom_In: 'Увеличить камеру',
       Zoom_Out: 'Свернуть камеру',
     },
@@ -178,8 +224,17 @@ const presets: Record<
       Thumb_Down: 'Отменить',
       Thumb_Up: 'Подтвердить',
       ILoveYou: 'Голосовой диалог',
+      OK_Gesture: 'Принять план',
+      Finger_Gun: 'Выбрать цель',
+      Three_Fingers: 'Три варианта',
+      Four_Fingers: 'Все инструменты',
+      Pinch_Hold: 'Глубокий анализ',
       Swipe_Left: 'Предыдущий ответ',
       Swipe_Right: 'Следующий шаг',
+      Swipe_Up: 'Ответ выше',
+      Swipe_Down: 'Ответ ниже',
+      Palm_Up: 'Открыть контекст',
+      Palm_Down: 'Свернуть контекст',
       Zoom_In: 'Расширить контекст',
       Zoom_Out: 'Сжать контекст',
     },
@@ -196,8 +251,17 @@ const presets: Record<
       Thumb_Down: 'Остановить агента',
       Thumb_Up: 'Запустить агента',
       ILoveYou: 'Раскрыть соседей',
+      OK_Gesture: 'Закрепить узел',
+      Finger_Gun: 'Связать цель',
+      Three_Fingers: 'Показать кластер',
+      Four_Fingers: 'Развернуть уровень',
+      Pinch_Hold: 'Зафиксировать связь',
       Swipe_Left: 'К прошлому узлу',
       Swipe_Right: 'К следующему узлу',
+      Swipe_Up: 'Слой выше',
+      Swipe_Down: 'Слой ниже',
+      Palm_Up: 'Поднять узел',
+      Palm_Down: 'Опустить узел',
       Zoom_In: 'Зум графа плюс',
       Zoom_Out: 'Зум графа минус',
     },
@@ -214,8 +278,17 @@ const presets: Record<
       Thumb_Down: 'Свет выкл.',
       Thumb_Up: 'Свет toggle',
       ILoveYou: 'Кино-режим',
+      OK_Gesture: 'Сценарий OK',
+      Finger_Gun: 'Выбрать устройство',
+      Three_Fingers: 'Сцена 3',
+      Four_Fingers: 'Сцена 4',
+      Pinch_Hold: 'Диммер удержание',
       Swipe_Left: 'Предыдущая сцена',
       Swipe_Right: 'Следующая сцена',
+      Swipe_Up: 'Яркость выше',
+      Swipe_Down: 'Яркость ниже',
+      Palm_Up: 'Шторы вверх',
+      Palm_Down: 'Шторы вниз',
       Zoom_In: 'Яркость выше',
       Zoom_Out: 'Яркость ниже',
     },
@@ -425,6 +498,8 @@ let eventSequence = 0
 let frameCount = 0
 let fpsStartedAt = performance.now()
 let pinchDown = false
+let pinchStartedAt: number | null = null
+let pinchHoldDown = false
 let motionSamples: MotionSample[] = []
 let zoomSamples: MotionSample[] = []
 const eventHistory: GestureEvent[] = []
@@ -545,6 +620,8 @@ function stopCamera() {
   motionSamples = []
   zoomSamples = []
   pinchDown = false
+  pinchStartedAt = null
+  pinchHoldDown = false
   stream?.getTracks().forEach((track) => track.stop())
   stream = null
   video.srcObject = null
@@ -606,17 +683,24 @@ function processResult(result: GestureRecognizerResult, now: number) {
   let motionStrength = 0
 
   if (landmarks) {
-    const pinch = updatePinch(landmarks)
+    const pinch = updatePinch(landmarks, now)
     pinchStrength = pinch.strength
 
     if (pinch.active) {
       detected.add('Pinch')
     }
 
+    if (pinch.holdActive) {
+      detected.add('Pinch_Hold')
+    }
+
+    updateShapeGestures(landmarks, pinch.ratio, detected)
     motionStrength = updateMotion(landmarks, now)
     updateCursor(landmarks)
   } else {
     pinchDown = false
+    pinchStartedAt = null
+    pinchHoldDown = false
     motionSamples = []
     cursorDot.classList.remove('is-visible')
   }
@@ -632,7 +716,7 @@ function processResult(result: GestureRecognizerResult, now: number) {
   setReadout(gestureTitle, topScore, result.landmarks.length, pinchStrength, motionStrength, detected.size)
 }
 
-function updatePinch(landmarks: NormalizedLandmark[]) {
+function updatePinch(landmarks: NormalizedLandmark[], now: number) {
   const thumbTip = landmarks[4]
   const indexTip = landmarks[8]
   const indexMcp = landmarks[5]
@@ -641,6 +725,24 @@ function updatePinch(landmarks: NormalizedLandmark[]) {
   const ratio = distance(thumbTip, indexTip) / palmWidth
   const strength = clamp(1 - (ratio - 0.25) / 0.55, 0, 1)
   const active = ratio < 0.5
+  let holdActive = false
+
+  if (active) {
+    pinchStartedAt ??= now
+    holdActive = now - pinchStartedAt > 700
+
+    if (holdActive && !pinchHoldDown) {
+      pinchHoldDown = true
+      fireGesture('Pinch_Hold', strength, 'landmarks', {
+        holdMs: Math.round(now - pinchStartedAt),
+        ratio: round(ratio),
+        strength: round(strength),
+      })
+    }
+  } else {
+    pinchStartedAt = null
+    pinchHoldDown = false
+  }
 
   if (ratio < 0.42 && !pinchDown) {
     pinchDown = true
@@ -651,7 +753,51 @@ function updatePinch(landmarks: NormalizedLandmark[]) {
     pinchDown = false
   }
 
-  return { active, strength }
+  return { active, holdActive, ratio, strength }
+}
+
+function updateShapeGestures(
+  landmarks: NormalizedLandmark[],
+  pinchRatio: number,
+  detected: Set<GestureKey>,
+) {
+  const hand = analyzeHand(landmarks)
+  const pinchConfidence = clamp(1 - pinchRatio, 0, 1)
+  const directionY = hand.averageLongTipY - landmarks[0].y
+  const directionConfidence = clamp(Math.abs(directionY) / (hand.palmWidth * 1.8), 0, 1)
+
+  if (pinchRatio < 0.47 && hand.middle && hand.ring && hand.pinky) {
+    detected.add('OK_Gesture')
+    fireGesture('OK_Gesture', pinchConfidence, 'landmarks', {
+      ratio: round(pinchRatio),
+      longFingers: hand.longCount,
+    })
+    return
+  }
+
+  if (hand.thumb && hand.index && !hand.middle && !hand.ring && !hand.pinky) {
+    detected.add('Finger_Gun')
+    fireGesture('Finger_Gun', 0.86, 'landmarks', { longFingers: hand.longCount })
+    return
+  }
+
+  if (hand.index && hand.middle && hand.ring && !hand.pinky) {
+    detected.add('Three_Fingers')
+    fireGesture('Three_Fingers', 0.82, 'landmarks', { longFingers: hand.longCount })
+  } else if (hand.longCount === 4 && !hand.thumb) {
+    detected.add('Four_Fingers')
+    fireGesture('Four_Fingers', 0.82, 'landmarks', { longFingers: hand.longCount })
+  }
+
+  if (hand.longCount >= 4 && directionY < -hand.palmWidth * 0.7) {
+    detected.add('Palm_Up')
+    fireGesture('Palm_Up', directionConfidence, 'landmarks', { directionY: round(directionY) })
+  }
+
+  if (hand.longCount >= 4 && directionY > hand.palmWidth * 0.7) {
+    detected.add('Palm_Down')
+    fireGesture('Palm_Down', directionConfidence, 'landmarks', { directionY: round(directionY) })
+  }
 }
 
 function updateMotion(landmarks: NormalizedLandmark[], now: number) {
@@ -673,10 +819,16 @@ function updateMotion(landmarks: NormalizedLandmark[], now: number) {
 
   const dx = sample.x - first.x
   const dy = sample.y - first.y
-  const strength = clamp(Math.abs(dx) / 0.26, 0, 1)
+  const strength = clamp(Math.max(Math.abs(dx), Math.abs(dy)) / 0.26, 0, 1)
 
   if (Math.abs(dx) > 0.22 && Math.abs(dx) > Math.abs(dy) * 1.45) {
     const gesture: GestureKey = dx > 0 ? 'Swipe_Right' : 'Swipe_Left'
+    fireGesture(gesture, strength, 'motion', { dx: round(dx), dy: round(dy) })
+    motionSamples = []
+  }
+
+  if (Math.abs(dy) > 0.2 && Math.abs(dy) > Math.abs(dx) * 1.45) {
+    const gesture: GestureKey = dy < 0 ? 'Swipe_Up' : 'Swipe_Down'
     fireGesture(gesture, strength, 'motion', { dx: round(dx), dy: round(dy) })
     motionSamples = []
   }
@@ -961,6 +1113,33 @@ function isGestureKey(value: string): value is GestureKey {
 
 function gestureTitleFor(gesture: GestureKey) {
   return gestureDefinitions.find((definition) => definition.key === gesture)?.title ?? gesture
+}
+
+function analyzeHand(landmarks: NormalizedLandmark[]) {
+  const wrist = landmarks[0]
+  const palmWidth = Math.max(distance(landmarks[5], landmarks[17]), 0.001)
+  const isExtended = (tip: number, pip: number) =>
+    distance(landmarks[tip], wrist) > distance(landmarks[pip], wrist) * 1.08
+  const thumb =
+    distance(landmarks[4], wrist) > distance(landmarks[3], wrist) * 1.06 &&
+    distance(landmarks[4], landmarks[5]) > palmWidth * 0.72
+  const index = isExtended(8, 6)
+  const middle = isExtended(12, 10)
+  const ring = isExtended(16, 14)
+  const pinky = isExtended(20, 18)
+  const averageLongTipY = (landmarks[8].y + landmarks[12].y + landmarks[16].y + landmarks[20].y) / 4
+  const longCount = [index, middle, ring, pinky].filter(Boolean).length
+
+  return {
+    thumb,
+    index,
+    middle,
+    ring,
+    pinky,
+    longCount,
+    palmWidth,
+    averageLongTipY,
+  }
 }
 
 function distance(a: NormalizedLandmark, b: NormalizedLandmark) {
