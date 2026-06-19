@@ -748,8 +748,6 @@ const maskAlphaCanvas = document.createElement('canvas')
 const maskAlphaContext = getCanvasContext(maskAlphaCanvas)
 const maskFeatherCanvas = document.createElement('canvas')
 const maskFeatherContext = getCanvasContext(maskFeatherCanvas)
-const maskSeamCanvas = document.createElement('canvas')
-const maskSeamContext = getCanvasContext(maskSeamCanvas)
 const maskSourceAlphaCanvas = document.createElement('canvas')
 const maskSourceAlphaContext = getCanvasContext(maskSourceAlphaCanvas)
 const maskSourceFeatherCanvas = document.createElement('canvas')
@@ -1454,12 +1452,12 @@ function drawFaceMask(landmarks: NormalizedLandmark[]) {
       layer.image,
       triangle.source,
       triangle.target,
-      1.2,
+      4.4,
     )
   }
 
   maskRenderContext.restore()
-  smoothMaskTriangleSeams(renderTriangles)
+  smoothMaskTriangleSeams()
   applyRenderedMaskFeather(layer, landmarks, renderTriangles)
   applySoftFaceMask(landmarks)
 
@@ -1530,7 +1528,7 @@ function applySourceMaskEdgeFeather(
   maskAlphaContext.imageSmoothingQuality = 'high'
 
   for (const triangle of renderTriangles) {
-    drawWarpedTriangle(maskAlphaContext, maskSourceAlphaCanvas, triangle.source, triangle.target, 2.4)
+    drawWarpedTriangle(maskAlphaContext, maskSourceAlphaCanvas, triangle.source, triangle.target, 5.6)
   }
 
   maskAlphaContext.restore()
@@ -1654,42 +1652,16 @@ function getSourceMaskEdgeFeather(layer: FaceMaskLayer, landmarks: NormalizedLan
   return Math.max(1, Math.round(raw / 2) * 2)
 }
 
-function smoothMaskTriangleSeams(renderTriangles: MaskTriangleRender[]) {
-  const blur = performanceMode === 'performance' ? 1.2 : 1.7
-  const seamWidth = performanceMode === 'performance' ? 4.5 : 6
+function smoothMaskTriangleSeams() {
+  const blur = performanceMode === 'performance' ? 0.55 : 0.85
 
   maskFeatherContext.clearRect(0, 0, maskFeatherCanvas.width, maskFeatherCanvas.height)
   maskFeatherContext.drawImage(maskRenderCanvas, 0, 0)
 
-  maskAlphaContext.clearRect(0, 0, maskAlphaCanvas.width, maskAlphaCanvas.height)
-  maskAlphaContext.save()
-  maskAlphaContext.filter = `blur(${blur}px)`
-  maskAlphaContext.drawImage(maskFeatherCanvas, 0, 0)
-  maskAlphaContext.restore()
-
-  maskSeamContext.clearRect(0, 0, maskSeamCanvas.width, maskSeamCanvas.height)
-  maskSeamContext.save()
-  maskSeamContext.filter = performanceMode === 'performance' ? 'blur(1.1px)' : 'blur(1.6px)'
-  maskSeamContext.strokeStyle = '#fff'
-  maskSeamContext.lineWidth = seamWidth
-  maskSeamContext.lineCap = 'round'
-  maskSeamContext.lineJoin = 'round'
-
-  for (const triangle of renderTriangles) {
-    drawTrianglePath(maskSeamContext, triangle.target)
-    maskSeamContext.stroke()
-  }
-
-  maskSeamContext.restore()
-
-  maskAlphaContext.save()
-  maskAlphaContext.globalCompositeOperation = 'destination-in'
-  maskAlphaContext.drawImage(maskSeamCanvas, 0, 0)
-  maskAlphaContext.restore()
-
   maskRenderContext.save()
-  maskRenderContext.globalAlpha = performanceMode === 'performance' ? 0.82 : 0.92
-  maskRenderContext.drawImage(maskAlphaCanvas, 0, 0)
+  maskRenderContext.globalAlpha = performanceMode === 'performance' ? 0.24 : 0.34
+  maskRenderContext.filter = `blur(${blur}px)`
+  maskRenderContext.drawImage(maskFeatherCanvas, 0, 0)
   maskRenderContext.restore()
 }
 
@@ -2040,8 +2012,6 @@ function syncMaskCanvases() {
     maskAlphaCanvas.height = canvas.height
     maskFeatherCanvas.width = canvas.width
     maskFeatherCanvas.height = canvas.height
-    maskSeamCanvas.width = canvas.width
-    maskSeamCanvas.height = canvas.height
   }
 }
 
@@ -2734,14 +2704,6 @@ function expandTriangle(points: Point2D[], pixels: number) {
       y: point.y + (dy / length) * pixels,
     }
   })
-}
-
-function drawTrianglePath(targetContext: CanvasRenderingContext2D, points: Point2D[]) {
-  targetContext.beginPath()
-  targetContext.moveTo(points[0].x, points[0].y)
-  targetContext.lineTo(points[1].x, points[1].y)
-  targetContext.lineTo(points[2].x, points[2].y)
-  targetContext.closePath()
 }
 
 function polygonCenter(points: Point2D[]): Point2D {
