@@ -559,6 +559,17 @@ app.innerHTML = `
             <input id="maskFile" class="file-input" type="file" accept="image/*" />
             <p class="mask-state" id="maskState">Не выбрана</p>
           </div>
+          <div class="mask-stability">
+            <div class="mask-stability-head">
+              <label class="input-label" for="maskStability">Стабилизация</label>
+              <strong id="maskStabilityValue">25%</strong>
+            </div>
+            <input id="maskStability" class="range-input" type="range" min="0" max="100" step="1" value="25" />
+            <div class="range-captions">
+              <span>Быстрее</span>
+              <span>Плавнее</span>
+            </div>
+          </div>
           <img class="mask-preview" id="maskPreview" alt="" />
         </section>
 
@@ -636,6 +647,8 @@ const maskToggle = getElement<HTMLInputElement>('maskToggle')
 const maskFile = getElement<HTMLInputElement>('maskFile')
 const maskState = getElement<HTMLElement>('maskState')
 const maskPreview = getElement<HTMLImageElement>('maskPreview')
+const maskStabilitySlider = getElement<HTMLInputElement>('maskStability')
+const maskStabilityValue = getElement<HTMLElement>('maskStabilityValue')
 const webhookToggle = getElement<HTMLInputElement>('webhookToggle')
 const webhookUrl = getElement<HTMLInputElement>('webhookUrl')
 const webhookState = getElement<HTMLElement>('webhookState')
@@ -667,6 +680,7 @@ let lastVideoTime = -1
 let currentPreset: PresetId = readPreset()
 let mirrorMode = localStorage.getItem('xedoc-hands-mirror') !== 'off'
 let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
+let maskStability = readMaskStability()
 let maskLayer: FaceMaskLayer | null = null
 let maskImageUrl: string | null = null
 let previousMaskFaceLandmarks: NormalizedLandmark[] | null = null
@@ -689,6 +703,7 @@ renderPresetTabs()
 renderGestureGrid()
 refreshIcons()
 setMirrorMode(mirrorMode)
+setMaskStability(maskStability)
 setMaskEnabled(maskEnabled)
 updateMaskState()
 setModelState('loading', 'Загрузка')
@@ -723,6 +738,10 @@ maskFile.addEventListener('change', () => {
   if (file) {
     loadMaskFile(file)
   }
+})
+
+maskStabilitySlider.addEventListener('input', () => {
+  setMaskStability(Number(maskStabilitySlider.value))
 })
 
 copyButton.addEventListener('click', () => {
@@ -876,6 +895,7 @@ function stopCamera() {
   cameraButton.querySelector('span')!.textContent = 'Камера'
   setCameraState('idle', 'Ожидание')
   setFaceState('idle', 'Ожидание')
+  resetMaskMotion()
   faceCount.textContent = '0'
   setReadout('Нет руки', 0, 0, 0, 0, 0)
   setActiveGestures(new Set())
@@ -1121,9 +1141,7 @@ function processFaceResult(result: FaceLandmarkerResult, now: number, detected: 
   if (!face) {
     setFaceState('idle', 'Нет лица')
     headSamples = []
-    previousMaskFaceLandmarks = null
-    displayedMaskFaceLandmarks = null
-    previousMaskFaceAt = 0
+    resetMaskMotion()
     return
   }
 
@@ -1306,30 +1324,29 @@ function compensateMaskLag(landmarks: NormalizedLandmark[], now: number) {
   }
 
   const dt = clamp(now - previousAt, 8, 80)
-  const leadFactor = clamp(0.18 + dt / 240, 0.22, 0.48)
-  const maxStep = 0.035
-  let motion = 0
-
-  for (let index = 0; index < landmarks.length; index += 1) {
-    motion += Math.hypot(landmarks[index].x - previousRaw[index].x, landmarks[index].y - previousRaw[index].y)
-  }
-
-  motion /= landmarks.length
-
-  const smoothing = motion > 0.012 ? 0.72 : 0.46
+  const stability = maskStability / 100
+  const leadFactor = 0.7 - stability * 0.52
+  const localLeadFactor = 0.18 - stability * 0.12
+  const response = 0.96 - stability * 0.44
+  const frameScale = clamp(dt / 33, 0.7, 1.45)
+  const maxStep = (0.12 - stability * 0.075) * frameScale
+  const globalVelocity = averageLandmarkDelta(landmarks, previousRaw)
 
   const stabilized = landmarks.map((landmark, index) => {
     const lastRaw = previousRaw[index]
     const lastShown = previousDisplayed[index]
+    const localDx = landmark.x - lastRaw.x - globalVelocity.x
+    const localDy = landmark.y - lastRaw.y - globalVelocity.y
+    const localDz = landmark.z - lastRaw.z - globalVelocity.z
     const predicted = {
-      x: landmark.x + (landmark.x - lastRaw.x) * leadFactor,
-      y: landmark.y + (landmark.y - lastRaw.y) * leadFactor,
-      z: landmark.z + (landmark.z - lastRaw.z) * leadFactor,
+      x: landmark.x + globalVelocity.x * leadFactor + localDx * localLeadFactor,
+      y: landmark.y + globalVelocity.y * leadFactor + localDy * localLeadFactor,
+      z: landmark.z + globalVelocity.z * leadFactor + localDz * localLeadFactor,
     }
     const next = {
-      x: lastShown.x + (predicted.x - lastShown.x) * smoothing,
-      y: lastShown.y + (predicted.y - lastShown.y) * smoothing,
-      z: lastShown.z + (predicted.z - lastShown.z) * smoothing,
+      x: lastShown.x + (predicted.x - lastShown.x) * response,
+      y: lastShown.y + (predicted.y - lastShown.y) * response,
+      z: lastShown.z + (predicted.z - lastShown.z) * response,
     }
     const dx = next.x - lastShown.x
     const dy = next.y - lastShown.y
@@ -1748,6 +1765,13 @@ function setMaskEnabled(next: boolean) {
   updateMaskState()
 }
 
+function setMaskStability(next: number) {
+  maskStability = clamp(Math.round(next), 0, 100)
+  localStorage.setItem('xedoc-hands-mask-stability', String(maskStability))
+  maskStabilitySlider.value = String(maskStability)
+  maskStabilityValue.textContent = `${maskStability}%`
+}
+
 function updateMaskState() {
   const hasImage = Boolean(maskLayer && maskImageUrl)
 
@@ -1761,6 +1785,12 @@ function updateMaskState() {
   }
 
   maskState.textContent = maskEnabled ? 'Включена' : 'Выключена'
+}
+
+function resetMaskMotion() {
+  previousMaskFaceLandmarks = null
+  displayedMaskFaceLandmarks = null
+  previousMaskFaceAt = 0
 }
 
 function setMirrorMode(next: boolean) {
@@ -1797,6 +1827,11 @@ function updateFps(now: number) {
 function readPreset(): PresetId {
   const saved = localStorage.getItem('xedoc-hands-preset')
   return saved && saved in presets ? (saved as PresetId) : 'browser'
+}
+
+function readMaskStability() {
+  const saved = Number(localStorage.getItem('xedoc-hands-mask-stability'))
+  return Number.isFinite(saved) ? clamp(Math.round(saved), 0, 100) : 25
 }
 
 function getElement<T extends HTMLElement>(id: string) {
@@ -1886,6 +1921,37 @@ function landmarkToSourcePoint(landmark: NormalizedLandmark, layer: FaceMaskLaye
   return {
     x: landmark.x * layer.width,
     y: landmark.y * layer.height,
+  }
+}
+
+function averageLandmarkDelta(current: NormalizedLandmark[], previous: NormalizedLandmark[]) {
+  let x = 0
+  let y = 0
+  let z = 0
+  let count = 0
+
+  for (const index of faceOvalIndices) {
+    const next = current[index]
+    const last = previous[index]
+
+    if (!next || !last) {
+      continue
+    }
+
+    x += next.x - last.x
+    y += next.y - last.y
+    z += next.z - last.z
+    count += 1
+  }
+
+  if (!count) {
+    return { x: 0, y: 0, z: 0 }
+  }
+
+  return {
+    x: x / count,
+    y: y / count,
+    z: z / count,
   }
 }
 
