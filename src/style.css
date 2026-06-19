@@ -51,6 +51,7 @@ body,
 #app {
   width: 100%;
   max-width: 100%;
+  scrollbar-gutter: stable;
 }
 
 button,
@@ -210,7 +211,7 @@ svg {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.65fr);
+  grid-template-columns: minmax(0, 1fr) clamp(360px, 31vw, 466px);
   gap: 16px;
   align-items: start;
 }
@@ -386,9 +387,11 @@ svg {
   display: grid;
   gap: 12px;
   min-width: 0;
+  contain: inline-size;
 }
 
 .panel {
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.92);
@@ -565,8 +568,11 @@ svg {
 }
 
 .event-json {
-  overflow: auto;
-  max-height: 214px;
+  width: 100%;
+  height: 214px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   margin: 0;
   padding: 12px;
   border: 1px solid var(--border);
@@ -577,6 +583,7 @@ svg {
   font-size: 12px;
   line-height: 1.45;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .gesture-strip,
