@@ -1452,10 +1452,12 @@ function drawFaceMask(landmarks: NormalizedLandmark[]) {
       layer.image,
       triangle.source,
       triangle.target,
+      4.4,
     )
   }
 
   maskRenderContext.restore()
+  smoothMaskTriangleSeams()
   applyRenderedMaskFeather(layer, landmarks, renderTriangles)
   applySoftFaceMask(landmarks)
 
@@ -1526,10 +1528,11 @@ function applySourceMaskEdgeFeather(
   maskAlphaContext.imageSmoothingQuality = 'high'
 
   for (const triangle of renderTriangles) {
-    drawWarpedTriangle(maskAlphaContext, maskSourceAlphaCanvas, triangle.source, triangle.target)
+    drawWarpedTriangle(maskAlphaContext, maskSourceAlphaCanvas, triangle.source, triangle.target, 5.6)
   }
 
   maskAlphaContext.restore()
+  fillAlphaTriangleSeams()
 
   maskRenderContext.save()
   maskRenderContext.globalCompositeOperation = 'destination-in'
@@ -1647,6 +1650,40 @@ function getSourceMaskEdgeFeather(layer: FaceMaskLayer, landmarks: NormalizedLan
   const raw = clamp(Math.round(targetBlur * scale), 1, 160)
 
   return Math.max(1, Math.round(raw / 2) * 2)
+}
+
+function smoothMaskTriangleSeams() {
+  const blur = performanceMode === 'performance' ? 0.55 : 0.85
+
+  maskFeatherContext.clearRect(0, 0, maskFeatherCanvas.width, maskFeatherCanvas.height)
+  maskFeatherContext.drawImage(maskRenderCanvas, 0, 0)
+
+  maskRenderContext.save()
+  maskRenderContext.globalAlpha = performanceMode === 'performance' ? 0.24 : 0.34
+  maskRenderContext.filter = `blur(${blur}px)`
+  maskRenderContext.drawImage(maskFeatherCanvas, 0, 0)
+  maskRenderContext.restore()
+}
+
+function fillAlphaTriangleSeams() {
+  const offsets: Point2D[] = [
+    { x: 0.75, y: 0 },
+    { x: -0.75, y: 0 },
+    { x: 0, y: 0.75 },
+    { x: 0, y: -0.75 },
+  ]
+
+  maskFeatherContext.clearRect(0, 0, maskFeatherCanvas.width, maskFeatherCanvas.height)
+  maskFeatherContext.drawImage(maskAlphaCanvas, 0, 0)
+
+  maskAlphaContext.save()
+  maskAlphaContext.globalAlpha = 0.72
+
+  for (const offset of offsets) {
+    maskAlphaContext.drawImage(maskFeatherCanvas, offset.x, offset.y)
+  }
+
+  maskAlphaContext.restore()
 }
 
 function compensateMaskLag(landmarks: NormalizedLandmark[], now: number) {
@@ -1832,10 +1869,11 @@ function drawWarpedTriangle(
   image: CanvasImageSource,
   source: Point2D[],
   target: Point2D[],
+  clipBleed = 3.6,
 ) {
   const [s0, s1, s2] = source
   const [t0, t1, t2] = target
-  const clip = expandTriangle(target, 2.6)
+  const clip = expandTriangle(target, clipBleed)
   const determinant = s0.x * (s1.y - s2.y) + s1.x * (s2.y - s0.y) + s2.x * (s0.y - s1.y)
 
   if (Math.abs(determinant) < 0.001) {
