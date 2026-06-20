@@ -454,10 +454,14 @@ const presets: Record<
 }
 
 const app = document.querySelector<HTMLDivElement>('#app')
+const urlParams = new URLSearchParams(window.location.search)
+const isStreamlabsOutput = urlParams.get('output') === 'streamlabs' || urlParams.has('streamlabs')
 
 if (!app) {
   throw new Error('App root was not found')
 }
+
+document.body.classList.toggle('streamlabs-output', isStreamlabsOutput)
 
 app.innerHTML = `
   <div class="app-shell">
@@ -942,7 +946,12 @@ updateMaskState()
 setModelState('loading', 'Загрузка')
 setCameraState('idle', 'Ожидание')
 setFaceState('idle', faceTrackingEnabled ? 'Ожидание' : 'Откл.')
-void bootModel()
+const bootPromise = bootModel()
+void bootPromise
+
+if (isStreamlabsOutput) {
+  void bootPromise.then(() => startCamera())
+}
 
 cameraButton.addEventListener('click', () => {
   if (isRunning) {

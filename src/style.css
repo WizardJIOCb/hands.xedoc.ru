@@ -925,6 +925,47 @@ svg {
   color: var(--muted);
 }
 
+body.streamlabs-output {
+  overflow: hidden;
+  background: #000;
+}
+
+.streamlabs-output .app-shell {
+  max-width: none;
+  min-height: 100svh;
+  padding: 0;
+}
+
+.streamlabs-output .topbar,
+.streamlabs-output .signal-row,
+.streamlabs-output .control-area,
+.streamlabs-output .event-log-band,
+.streamlabs-output .hud,
+.streamlabs-output .cursor-dot {
+  display: none;
+}
+
+.streamlabs-output .workspace,
+.streamlabs-output .stage-area {
+  display: block;
+  width: 100vw;
+  height: 100svh;
+}
+
+.streamlabs-output .stage {
+  width: 100vw;
+  height: 100svh;
+  border: 0;
+  border-radius: 0;
+  background: #000;
+  box-shadow: none;
+}
+
+.streamlabs-output #cameraVideo,
+.streamlabs-output #overlayCanvas {
+  object-fit: contain;
+}
+
 @media (max-width: 1220px) {
   .workspace {
     grid-template-columns: 1fr;
