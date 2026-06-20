@@ -45,7 +45,6 @@ import {
   Undo2,
   Waypoints,
   Webcam,
-  Zap,
   ZoomIn,
   ZoomOut,
 } from 'lucide'
@@ -197,7 +196,6 @@ const usedIcons = {
   Undo2,
   Waypoints,
   Webcam,
-  Zap,
   ZoomIn,
   ZoomOut,
 }
@@ -470,10 +468,6 @@ app.innerHTML = `
         <button class="button" id="mirrorButton" type="button" title="Зеркальное отображение">
           <i data-lucide="flip-horizontal-2"></i>
           <span>Зеркало</span>
-        </button>
-        <button class="button" id="testButton" type="button">
-          <i data-lucide="zap"></i>
-          <span>Тест</span>
         </button>
       </div>
     </header>
@@ -780,7 +774,6 @@ const cursorDot = getElement<HTMLDivElement>('cursorDot')
 const stageEmpty = getElement<HTMLDivElement>('stageEmpty')
 const cameraButton = getElement<HTMLButtonElement>('cameraButton')
 const mirrorButton = getElement<HTMLButtonElement>('mirrorButton')
-const testButton = getElement<HTMLButtonElement>('testButton')
 const modelDot = getElement<HTMLSpanElement>('modelDot')
 const modelStatus = getElement<HTMLElement>('modelStatus')
 const cameraDot = getElement<HTMLSpanElement>('cameraDot')
@@ -950,10 +943,6 @@ cameraButton.addEventListener('click', () => {
 
 mirrorButton.addEventListener('click', () => {
   setMirrorMode(!mirrorMode)
-})
-
-testButton.addEventListener('click', () => {
-  fireGesture('Thumb_Up', 1, 'manual', { test: true })
 })
 
 maskToggle.addEventListener('change', () => {
