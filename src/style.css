@@ -728,6 +728,64 @@ svg {
   margin-bottom: 6px;
 }
 
+.setting-title {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.setting-toggle {
+  position: relative;
+  display: inline-flex;
+  width: 24px;
+  height: 14px;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.setting-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.setting-toggle span {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #d9e3dc;
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.setting-toggle span::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(12, 20, 24, 0.22);
+  content: '';
+  transition: transform 0.15s ease;
+}
+
+.setting-toggle input:checked + span {
+  background: var(--green);
+}
+
+.setting-toggle input:checked + span::after {
+  transform: translateX(10px);
+}
+
+.range-input:disabled,
+.color-input:disabled {
+  opacity: 0.42;
+}
+
 .mask-stability-head .input-label {
   margin: 0;
 }

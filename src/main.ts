@@ -680,7 +680,13 @@ app.innerHTML = `
           </div>
           <div class="mask-stability" id="maskEdgeFeatherBlock">
             <div class="mask-stability-head">
-              <label class="input-label" for="maskEdgeFeather">Мягкий край</label>
+              <div class="setting-title">
+                <label class="setting-toggle" title="Включить мягкий край">
+                  <input id="maskEdgeFeatherEnabled" type="checkbox" checked />
+                  <span></span>
+                </label>
+                <label class="input-label" for="maskEdgeFeather">Мягкий край</label>
+              </div>
               <strong id="maskEdgeFeatherValue">18px</strong>
             </div>
             <input id="maskEdgeFeather" class="range-input" type="range" min="0" max="80" step="1" value="18" />
@@ -691,7 +697,13 @@ app.innerHTML = `
           </div>
           <div class="mask-color" id="maskColorBlock">
             <div class="mask-stability-head">
-              <label class="input-label" for="maskColorStrength">Цвет лица</label>
+              <div class="setting-title">
+                <label class="setting-toggle" title="Включить цвет лица">
+                  <input id="maskColorStrengthEnabled" type="checkbox" checked />
+                  <span></span>
+                </label>
+                <label class="input-label" for="maskColorStrength">Цвет лица</label>
+              </div>
               <strong id="maskColorStrengthValue">0%</strong>
             </div>
             <div class="mask-color-row">
@@ -706,28 +718,52 @@ app.innerHTML = `
             <div class="mask-adjust-grid">
               <div>
                 <div class="mask-stability-head">
-                  <label class="input-label" for="maskBrightness">Яркость</label>
+                  <div class="setting-title">
+                    <label class="setting-toggle" title="Включить яркость">
+                      <input id="maskBrightnessEnabled" type="checkbox" checked />
+                      <span></span>
+                    </label>
+                    <label class="input-label" for="maskBrightness">Яркость</label>
+                  </div>
                   <strong id="maskBrightnessValue">0</strong>
                 </div>
                 <input id="maskBrightness" class="range-input" type="range" min="-40" max="40" step="1" value="0" />
               </div>
               <div>
                 <div class="mask-stability-head">
-                  <label class="input-label" for="maskSaturation">Насыщенность</label>
+                  <div class="setting-title">
+                    <label class="setting-toggle" title="Включить насыщенность">
+                      <input id="maskSaturationEnabled" type="checkbox" checked />
+                      <span></span>
+                    </label>
+                    <label class="input-label" for="maskSaturation">Насыщенность</label>
+                  </div>
                   <strong id="maskSaturationValue">0</strong>
                 </div>
                 <input id="maskSaturation" class="range-input" type="range" min="-50" max="60" step="1" value="0" />
               </div>
               <div>
                 <div class="mask-stability-head">
-                  <label class="input-label" for="maskContrast">Контраст</label>
+                  <div class="setting-title">
+                    <label class="setting-toggle" title="Включить контраст">
+                      <input id="maskContrastEnabled" type="checkbox" checked />
+                      <span></span>
+                    </label>
+                    <label class="input-label" for="maskContrast">Контраст</label>
+                  </div>
                   <strong id="maskContrastValue">0</strong>
                 </div>
                 <input id="maskContrast" class="range-input" type="range" min="-40" max="60" step="1" value="0" />
               </div>
               <div>
                 <div class="mask-stability-head">
-                  <label class="input-label" for="maskTemperature">Температура</label>
+                  <div class="setting-title">
+                    <label class="setting-toggle" title="Включить температуру">
+                      <input id="maskTemperatureEnabled" type="checkbox" checked />
+                      <span></span>
+                    </label>
+                    <label class="input-label" for="maskTemperature">Температура</label>
+                  </div>
                   <strong id="maskTemperatureValue">0</strong>
                 </div>
                 <input id="maskTemperature" class="range-input" type="range" min="-50" max="50" step="1" value="0" />
@@ -738,7 +774,13 @@ app.innerHTML = `
               </div>
               <div>
                 <div class="mask-stability-head">
-                  <label class="input-label" for="maskTint">Оттенок</label>
+                  <div class="setting-title">
+                    <label class="setting-toggle" title="Включить оттенок">
+                      <input id="maskTintEnabled" type="checkbox" checked />
+                      <span></span>
+                    </label>
+                    <label class="input-label" for="maskTint">Оттенок</label>
+                  </div>
                   <strong id="maskTintValue">0</strong>
                 </div>
                 <input id="maskTint" class="range-input" type="range" min="-50" max="50" step="1" value="0" />
@@ -881,22 +923,29 @@ const maskStabilityValue = getElement<HTMLElement>('maskStabilityValue')
 const maskStabilityBlock = getElement<HTMLDivElement>('maskStabilityBlock')
 const maskEdgeFeatherSlider = getElement<HTMLInputElement>('maskEdgeFeather')
 const maskEdgeFeatherValue = getElement<HTMLElement>('maskEdgeFeatherValue')
+const maskEdgeFeatherEnabledToggle = getElement<HTMLInputElement>('maskEdgeFeatherEnabled')
 const maskEdgeFeatherBlock = getElement<HTMLDivElement>('maskEdgeFeatherBlock')
 const maskColorBlock = getElement<HTMLDivElement>('maskColorBlock')
 const maskSkinColorInput = getElement<HTMLInputElement>('maskSkinColor')
 const maskSampleSkinButton = getElement<HTMLButtonElement>('maskSampleSkinButton')
 const maskColorStrengthSlider = getElement<HTMLInputElement>('maskColorStrength')
 const maskColorStrengthValue = getElement<HTMLElement>('maskColorStrengthValue')
+const maskColorStrengthEnabledToggle = getElement<HTMLInputElement>('maskColorStrengthEnabled')
 const maskBrightnessSlider = getElement<HTMLInputElement>('maskBrightness')
 const maskBrightnessValue = getElement<HTMLElement>('maskBrightnessValue')
+const maskBrightnessEnabledToggle = getElement<HTMLInputElement>('maskBrightnessEnabled')
 const maskSaturationSlider = getElement<HTMLInputElement>('maskSaturation')
 const maskSaturationValue = getElement<HTMLElement>('maskSaturationValue')
+const maskSaturationEnabledToggle = getElement<HTMLInputElement>('maskSaturationEnabled')
 const maskContrastSlider = getElement<HTMLInputElement>('maskContrast')
 const maskContrastValue = getElement<HTMLElement>('maskContrastValue')
+const maskContrastEnabledToggle = getElement<HTMLInputElement>('maskContrastEnabled')
 const maskTemperatureSlider = getElement<HTMLInputElement>('maskTemperature')
 const maskTemperatureValue = getElement<HTMLElement>('maskTemperatureValue')
+const maskTemperatureEnabledToggle = getElement<HTMLInputElement>('maskTemperatureEnabled')
 const maskTintSlider = getElement<HTMLInputElement>('maskTint')
 const maskTintValue = getElement<HTMLElement>('maskTintValue')
+const maskTintEnabledToggle = getElement<HTMLInputElement>('maskTintEnabled')
 const maskModeTabs = getElement<HTMLDivElement>('maskModeTabs')
 const faceSwapOptions = getElement<HTMLDivElement>('faceSwapOptions')
 const faceSwapEndpoint = getElement<HTMLInputElement>('faceSwapEndpoint')
@@ -947,13 +996,20 @@ let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
 let maskMode: MaskMode = readMaskMode()
 let maskStability = readMaskStability()
 let maskEdgeFeather = readMaskEdgeFeather()
+let maskEdgeFeatherEnabled = readMaskSettingEnabled('edge-feather')
 let maskSkinColor = readMaskSkinColor()
 let maskColorStrength = readMaskColorStrength()
+let maskColorStrengthEnabled = readMaskSettingEnabled('color-strength')
 let maskBrightness = readMaskBrightness()
+let maskBrightnessEnabled = readMaskSettingEnabled('brightness')
 let maskSaturation = readMaskSaturation()
+let maskSaturationEnabled = readMaskSettingEnabled('saturation')
 let maskContrast = readMaskContrast()
+let maskContrastEnabled = readMaskSettingEnabled('contrast')
 let maskTemperature = readMaskTemperature()
+let maskTemperatureEnabled = readMaskSettingEnabled('temperature')
 let maskTint = readMaskTint()
+let maskTintEnabled = readMaskSettingEnabled('tint')
 let maskLayer: FaceMaskLayer | null = null
 let maskImageUrl: string | null = null
 let maskSourceBlob: Blob | null = null
@@ -997,13 +1053,20 @@ setPerformanceMode(performanceMode)
 setMaskMode(maskMode)
 setMaskStability(maskStability)
 setMaskEdgeFeather(maskEdgeFeather)
+setMaskEdgeFeatherEnabled(maskEdgeFeatherEnabled)
 setMaskSkinColor(maskSkinColor)
 setMaskColorStrength(maskColorStrength)
+setMaskColorStrengthEnabled(maskColorStrengthEnabled)
 setMaskBrightness(maskBrightness)
+setMaskBrightnessEnabled(maskBrightnessEnabled)
 setMaskSaturation(maskSaturation)
+setMaskSaturationEnabled(maskSaturationEnabled)
 setMaskContrast(maskContrast)
+setMaskContrastEnabled(maskContrastEnabled)
 setMaskTemperature(maskTemperature)
+setMaskTemperatureEnabled(maskTemperatureEnabled)
 setMaskTint(maskTint)
+setMaskTintEnabled(maskTintEnabled)
 setMaskEnabled(maskEnabled)
 updateMaskState()
 setModelState('loading', 'Загрузка')
@@ -1143,6 +1206,11 @@ maskEdgeFeatherSlider.addEventListener('change', () => {
   trackMaskSetting('edgeFeather', maskEdgeFeather)
 })
 
+maskEdgeFeatherEnabledToggle.addEventListener('change', () => {
+  setMaskEdgeFeatherEnabled(maskEdgeFeatherEnabledToggle.checked)
+  trackMaskSettingToggle('edgeFeather', maskEdgeFeatherEnabled)
+})
+
 maskSkinColorInput.addEventListener('input', () => {
   setMaskSkinColor(maskSkinColorInput.value)
 })
@@ -1159,12 +1227,22 @@ maskColorStrengthSlider.addEventListener('change', () => {
   trackMaskSetting('skinColorStrength', maskColorStrength)
 })
 
+maskColorStrengthEnabledToggle.addEventListener('change', () => {
+  setMaskColorStrengthEnabled(maskColorStrengthEnabledToggle.checked)
+  trackMaskSettingToggle('skinColorStrength', maskColorStrengthEnabled)
+})
+
 maskBrightnessSlider.addEventListener('input', () => {
   setMaskBrightness(Number(maskBrightnessSlider.value))
 })
 
 maskBrightnessSlider.addEventListener('change', () => {
   trackMaskSetting('brightness', maskBrightness)
+})
+
+maskBrightnessEnabledToggle.addEventListener('change', () => {
+  setMaskBrightnessEnabled(maskBrightnessEnabledToggle.checked)
+  trackMaskSettingToggle('brightness', maskBrightnessEnabled)
 })
 
 maskSaturationSlider.addEventListener('input', () => {
@@ -1175,12 +1253,22 @@ maskSaturationSlider.addEventListener('change', () => {
   trackMaskSetting('saturation', maskSaturation)
 })
 
+maskSaturationEnabledToggle.addEventListener('change', () => {
+  setMaskSaturationEnabled(maskSaturationEnabledToggle.checked)
+  trackMaskSettingToggle('saturation', maskSaturationEnabled)
+})
+
 maskContrastSlider.addEventListener('input', () => {
   setMaskContrast(Number(maskContrastSlider.value))
 })
 
 maskContrastSlider.addEventListener('change', () => {
   trackMaskSetting('contrast', maskContrast)
+})
+
+maskContrastEnabledToggle.addEventListener('change', () => {
+  setMaskContrastEnabled(maskContrastEnabledToggle.checked)
+  trackMaskSettingToggle('contrast', maskContrastEnabled)
 })
 
 maskTemperatureSlider.addEventListener('input', () => {
@@ -1191,12 +1279,22 @@ maskTemperatureSlider.addEventListener('change', () => {
   trackMaskSetting('temperature', maskTemperature)
 })
 
+maskTemperatureEnabledToggle.addEventListener('change', () => {
+  setMaskTemperatureEnabled(maskTemperatureEnabledToggle.checked)
+  trackMaskSettingToggle('temperature', maskTemperatureEnabled)
+})
+
 maskTintSlider.addEventListener('input', () => {
   setMaskTint(Number(maskTintSlider.value))
 })
 
 maskTintSlider.addEventListener('change', () => {
   trackMaskSetting('tint', maskTint)
+})
+
+maskTintEnabledToggle.addEventListener('change', () => {
+  setMaskTintEnabled(maskTintEnabledToggle.checked)
+  trackMaskSettingToggle('tint', maskTintEnabled)
 })
 
 maskSampleSkinButton.addEventListener('click', () => {
@@ -1974,12 +2072,12 @@ function averageTriangleZ(landmarks: NormalizedLandmark[]) {
 }
 
 function applyMaskColorCorrection() {
-  const strength = maskColorStrength / 100
-  const brightness = maskBrightness
-  const saturation = maskSaturation
-  const contrast = maskContrast
-  const temperature = maskTemperature
-  const tint = maskTint
+  const strength = maskColorStrengthEnabled ? maskColorStrength / 100 : 0
+  const brightness = maskBrightnessEnabled ? maskBrightness : 0
+  const saturation = maskSaturationEnabled ? maskSaturation : 0
+  const contrast = maskContrastEnabled ? maskContrast : 0
+  const temperature = maskTemperatureEnabled ? maskTemperature : 0
+  const tint = maskTintEnabled ? maskTint : 0
 
   if (strength <= 0 && brightness === 0 && saturation === 0 && contrast === 0 && temperature === 0 && tint === 0) {
     return
@@ -2037,6 +2135,10 @@ function applyMaskColorOverlay(color: string, alpha: number) {
 }
 
 function applyRenderedMaskFeather(landmarks: NormalizedLandmark[]) {
+  if (!maskEdgeFeatherEnabled) {
+    return
+  }
+
   const blur = getAdaptiveMaskEdgeFeather(landmarks)
 
   if (blur <= 0) {
@@ -2791,6 +2893,16 @@ function trackMaskSetting(setting: string, value: string | number) {
   })
 }
 
+function trackMaskSettingToggle(setting: string, enabled: boolean) {
+  trackMetrika('mask_setting_toggled', {
+    setting,
+    enabled,
+    maskMode,
+    maskEnabled,
+    maskCount: getLoadedMaskCount(),
+  })
+}
+
 function trackFaceCount(count: number) {
   maxTrackedFaceCount = Math.max(maxTrackedFaceCount, count)
 
@@ -3127,6 +3239,13 @@ function setMaskEdgeFeather(next: number) {
   maskEdgeFeatherValue.textContent = `${maskEdgeFeather}px`
 }
 
+function setMaskEdgeFeatherEnabled(next: boolean) {
+  maskEdgeFeatherEnabled = next
+  setMaskSettingEnabled('edge-feather', next)
+  maskEdgeFeatherEnabledToggle.checked = next
+  maskEdgeFeatherSlider.disabled = !next
+}
+
 function setMaskSkinColor(next: string) {
   maskSkinColor = normalizeHexColor(next, '#f2c7ad')
   localStorage.setItem('xedoc-hands-mask-skin-color', maskSkinColor)
@@ -3140,11 +3259,27 @@ function setMaskColorStrength(next: number) {
   maskColorStrengthValue.textContent = `${maskColorStrength}%`
 }
 
+function setMaskColorStrengthEnabled(next: boolean) {
+  maskColorStrengthEnabled = next
+  setMaskSettingEnabled('color-strength', next)
+  maskColorStrengthEnabledToggle.checked = next
+  maskSkinColorInput.disabled = !next
+  maskSampleSkinButton.disabled = !next
+  maskColorStrengthSlider.disabled = !next
+}
+
 function setMaskBrightness(next: number) {
   maskBrightness = clamp(Math.round(next), -40, 40)
   localStorage.setItem('xedoc-hands-mask-brightness', String(maskBrightness))
   maskBrightnessSlider.value = String(maskBrightness)
   maskBrightnessValue.textContent = signedValue(maskBrightness)
+}
+
+function setMaskBrightnessEnabled(next: boolean) {
+  maskBrightnessEnabled = next
+  setMaskSettingEnabled('brightness', next)
+  maskBrightnessEnabledToggle.checked = next
+  maskBrightnessSlider.disabled = !next
 }
 
 function setMaskSaturation(next: number) {
@@ -3154,11 +3289,25 @@ function setMaskSaturation(next: number) {
   maskSaturationValue.textContent = signedValue(maskSaturation)
 }
 
+function setMaskSaturationEnabled(next: boolean) {
+  maskSaturationEnabled = next
+  setMaskSettingEnabled('saturation', next)
+  maskSaturationEnabledToggle.checked = next
+  maskSaturationSlider.disabled = !next
+}
+
 function setMaskContrast(next: number) {
   maskContrast = clamp(Math.round(next), -40, 60)
   localStorage.setItem('xedoc-hands-mask-contrast', String(maskContrast))
   maskContrastSlider.value = String(maskContrast)
   maskContrastValue.textContent = signedValue(maskContrast)
+}
+
+function setMaskContrastEnabled(next: boolean) {
+  maskContrastEnabled = next
+  setMaskSettingEnabled('contrast', next)
+  maskContrastEnabledToggle.checked = next
+  maskContrastSlider.disabled = !next
 }
 
 function setMaskTemperature(next: number) {
@@ -3168,11 +3317,25 @@ function setMaskTemperature(next: number) {
   maskTemperatureValue.textContent = signedValue(maskTemperature)
 }
 
+function setMaskTemperatureEnabled(next: boolean) {
+  maskTemperatureEnabled = next
+  setMaskSettingEnabled('temperature', next)
+  maskTemperatureEnabledToggle.checked = next
+  maskTemperatureSlider.disabled = !next
+}
+
 function setMaskTint(next: number) {
   maskTint = clamp(Math.round(next), -50, 50)
   localStorage.setItem('xedoc-hands-mask-tint', String(maskTint))
   maskTintSlider.value = String(maskTint)
   maskTintValue.textContent = signedValue(maskTint)
+}
+
+function setMaskTintEnabled(next: boolean) {
+  maskTintEnabled = next
+  setMaskSettingEnabled('tint', next)
+  maskTintEnabledToggle.checked = next
+  maskTintSlider.disabled = !next
 }
 
 function updateMaskState() {
@@ -3359,6 +3522,14 @@ function readMaskEdgeFeather() {
   const raw = localStorage.getItem('xedoc-hands-mask-edge-feather')
   const saved = raw === null ? Number.NaN : Number(raw)
   return Number.isFinite(saved) ? clamp(Math.round(saved), 0, 80) : performanceMode === 'performance' ? 12 : 18
+}
+
+function readMaskSettingEnabled(key: string) {
+  return localStorage.getItem(`xedoc-hands-mask-${key}-enabled`) !== 'off'
+}
+
+function setMaskSettingEnabled(key: string, enabled: boolean) {
+  localStorage.setItem(`xedoc-hands-mask-${key}-enabled`, enabled ? 'on' : 'off')
 }
 
 function readMaskSkinColor() {
