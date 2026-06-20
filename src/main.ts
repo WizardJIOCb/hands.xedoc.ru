@@ -516,6 +516,14 @@ app.innerHTML = `
             <span class="meter-track"><span id="motionMeter"></span></span>
           </div>
         </div>
+
+        <section class="gesture-strip" aria-label="Жесты и действия">
+          <div class="strip-head">
+            <h2>Жесты</h2>
+            <p id="actionHint">Готово к маппингу команд</p>
+          </div>
+          <div class="gesture-grid" id="gestureGrid"></div>
+        </section>
       </section>
 
       <aside class="control-area" aria-label="Настройки">
@@ -690,14 +698,6 @@ app.innerHTML = `
         </section>
       </aside>
     </main>
-
-    <section class="gesture-strip" aria-label="Жесты и действия">
-      <div class="strip-head">
-        <h2>Жесты</h2>
-        <p id="actionHint">Готово к маппингу команд</p>
-      </div>
-      <div class="gesture-grid" id="gestureGrid"></div>
-    </section>
 
     <section class="event-log-band" aria-label="События">
       <div class="strip-head">
