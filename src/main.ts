@@ -561,7 +561,15 @@ app.innerHTML = `
               <span></span>
             </label>
           </div>
-          <p class="panel-state" id="handTrackingState">Трекинг и маркеры включены</p>
+          <p class="panel-state" id="handTrackingState">Трекинг включен</p>
+          <div class="option-row">
+            <span>Линии рук</span>
+            <label class="switch">
+              <input id="handMarkersToggle" type="checkbox" checked />
+              <span></span>
+            </label>
+          </div>
+          <p class="panel-state mode-state" id="handMarkersState">Линии и точки включены</p>
         </section>
 
         <section class="panel">
@@ -736,6 +744,8 @@ const faceDot = getElement<HTMLSpanElement>('faceDot')
 const faceStatus = getElement<HTMLElement>('faceStatus')
 const handTrackingToggle = getElement<HTMLInputElement>('handTrackingToggle')
 const handTrackingState = getElement<HTMLElement>('handTrackingState')
+const handMarkersToggle = getElement<HTMLInputElement>('handMarkersToggle')
+const handMarkersState = getElement<HTMLElement>('handMarkersState')
 const faceTrackingToggle = getElement<HTMLInputElement>('faceTrackingToggle')
 const faceTrackingState = getElement<HTMLElement>('faceTrackingState')
 const multiFaceToggle = getElement<HTMLInputElement>('multiFaceToggle')
@@ -815,6 +825,7 @@ let lastVideoTime = -1
 let currentPreset: PresetId = readPreset()
 let mirrorMode = localStorage.getItem('xedoc-hands-mirror') !== 'off'
 let handTrackingEnabled = localStorage.getItem('xedoc-hands-hand-tracking') !== 'off'
+let handMarkersEnabled = localStorage.getItem('xedoc-hands-hand-markers') !== 'off'
 let faceTrackingEnabled = localStorage.getItem('xedoc-hands-face-tracking') !== 'off'
 let multiFaceTrackingEnabled = localStorage.getItem('xedoc-hands-multi-face') === 'on'
 let performanceMode: PerformanceMode = readPerformanceMode()
@@ -856,6 +867,7 @@ renderPerformanceModeTabs()
 refreshIcons()
 setMirrorMode(mirrorMode)
 setHandTrackingEnabled(handTrackingEnabled)
+setHandMarkersEnabled(handMarkersEnabled)
 setFaceTrackingEnabled(faceTrackingEnabled)
 setMultiFaceTrackingEnabled(multiFaceTrackingEnabled, false)
 setPerformanceMode(performanceMode)
@@ -896,6 +908,10 @@ maskToggle.addEventListener('change', () => {
 
 handTrackingToggle.addEventListener('change', () => {
   setHandTrackingEnabled(handTrackingToggle.checked)
+})
+
+handMarkersToggle.addEventListener('change', () => {
+  setHandMarkersEnabled(handMarkersToggle.checked)
 })
 
 faceTrackingToggle.addEventListener('change', () => {
@@ -1210,17 +1226,19 @@ function processResult(result: GestureRecognizerResult | null, faceResult: FaceL
     setFaceState('idle', faceTrackingEnabled ? 'Нет лица' : 'Откл.')
   }
 
-  for (const hand of handLandmarks) {
-    drawingUtils.drawConnectors(hand, GestureRecognizer.HAND_CONNECTIONS, {
-      color: 'rgba(74, 222, 128, 0.9)',
-      lineWidth: 4,
-    })
-    drawingUtils.drawLandmarks(hand, {
-      color: 'rgba(255, 255, 255, 0.95)',
-      fillColor: 'rgba(12, 20, 24, 0.9)',
-      lineWidth: 2,
-      radius: 4,
-    })
+  if (handMarkersEnabled) {
+    for (const hand of handLandmarks) {
+      drawingUtils.drawConnectors(hand, GestureRecognizer.HAND_CONNECTIONS, {
+        color: 'rgba(74, 222, 128, 0.9)',
+        lineWidth: 4,
+      })
+      drawingUtils.drawLandmarks(hand, {
+        color: 'rgba(255, 255, 255, 0.95)',
+        fillColor: 'rgba(12, 20, 24, 0.9)',
+        lineWidth: 2,
+        radius: 4,
+      })
+    }
   }
 
   if (handTrackingEnabled && isGestureKey(modelGesture) && topScore > 0.58) {
@@ -2476,7 +2494,8 @@ function setHandTrackingEnabled(next: boolean) {
   handTrackingEnabled = next
   localStorage.setItem('xedoc-hands-hand-tracking', next ? 'on' : 'off')
   handTrackingToggle.checked = next
-  handTrackingState.textContent = next ? 'Трекинг и маркеры включены' : 'Трекинг и маркеры выключены'
+  handTrackingState.textContent = next ? 'Трекинг включен' : 'Трекинг выключен'
+  updateHandMarkersState()
   resetHandTracking()
 
   if (!next) {
@@ -2488,6 +2507,24 @@ function setHandTrackingEnabled(next: boolean) {
   if (!isRunning) {
     setReadout('Нет руки', 0, 0, 0, 0, 0)
   }
+}
+
+function setHandMarkersEnabled(next: boolean) {
+  handMarkersEnabled = next
+  localStorage.setItem('xedoc-hands-hand-markers', next ? 'on' : 'off')
+  handMarkersToggle.checked = next
+  updateHandMarkersState()
+}
+
+function updateHandMarkersState() {
+  handMarkersToggle.disabled = !handTrackingEnabled
+
+  if (!handTrackingEnabled) {
+    handMarkersState.textContent = 'Трекинг рук выключен'
+    return
+  }
+
+  handMarkersState.textContent = handMarkersEnabled ? 'Линии и точки включены' : 'Линии и точки скрыты'
 }
 
 function setFaceTrackingEnabled(next: boolean) {
