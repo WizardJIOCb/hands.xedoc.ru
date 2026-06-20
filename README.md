@@ -1,3 +1,6 @@
+<img width="1280" height="1226" alt="image" src="https://github.com/user-attachments/assets/5c2cd8a4-6f47-4a86-b3e4-326e34aea475" />
+<img width="1280" height="1174" alt="image" src="https://github.com/user-attachments/assets/feb69c84-03a7-440a-9b01-a6bb31374399" />
+
 # Xedoc Hands
 
 Веб-прототип управления жестами и лицевыми сигналами через камеру.
