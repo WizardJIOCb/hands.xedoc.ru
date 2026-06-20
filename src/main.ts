@@ -456,6 +456,11 @@ const presets: Record<
 const app = document.querySelector<HTMLDivElement>('#app')
 const urlParams = new URLSearchParams(window.location.search)
 const isStreamlabsOutput = urlParams.get('output') === 'streamlabs' || urlParams.has('streamlabs')
+const shouldAutostartCamera =
+  isStreamlabsOutput ||
+  urlParams.get('autostart') === '1' ||
+  urlParams.has('autostart') ||
+  urlParams.get('camera') === '1'
 
 if (!app) {
   throw new Error('App root was not found')
@@ -493,7 +498,7 @@ app.innerHTML = `
           <div class="cursor-dot" id="cursorDot"></div>
           <div class="stage-empty" id="stageEmpty">
             <i data-lucide="webcam"></i>
-            <span>Камера выключена</span>
+            <span id="stageEmptyText">Камера выключена</span>
           </div>
           <div class="hud">
             <div>
@@ -785,6 +790,7 @@ const canvas = getElement<HTMLCanvasElement>('overlayCanvas')
 const canvasContext = canvas.getContext('2d')
 const cursorDot = getElement<HTMLDivElement>('cursorDot')
 const stageEmpty = getElement<HTMLDivElement>('stageEmpty')
+const stageEmptyText = getElement<HTMLSpanElement>('stageEmptyText')
 const cameraButton = getElement<HTMLButtonElement>('cameraButton')
 const mirrorButton = getElement<HTMLButtonElement>('mirrorButton')
 const modelDot = getElement<HTMLSpanElement>('modelDot')
@@ -949,7 +955,7 @@ setFaceState('idle', faceTrackingEnabled ? 'Ожидание' : 'Откл.')
 const bootPromise = bootModel()
 void bootPromise
 
-if (isStreamlabsOutput) {
+if (shouldAutostartCamera) {
   void bootPromise.then(() => startCamera())
 }
 
@@ -1169,6 +1175,8 @@ trackMetrika('app_loaded', {
   multiFace: multiFaceTrackingEnabled,
   maskMode,
   maskEnabled,
+  streamlabsOutput: isStreamlabsOutput,
+  autostart: shouldAutostartCamera,
 })
 
 async function bootModel() {
@@ -1278,17 +1286,38 @@ async function rebuildFaceLandmarker() {
 }
 
 async function startCamera() {
+  if (isRunning) {
+    return
+  }
+
+  stageEmptyText.textContent = 'Запускаем камеру'
+  stageEmpty.classList.remove('is-hidden')
+
   if (!recognizer || !faceLandmarker) {
     setCameraState('loading', 'Ждем модель')
+    stageEmptyText.textContent = 'Загружаем модели'
     await bootModel()
   }
 
   if (!recognizer || !faceLandmarker) {
     setCameraState('error', 'Модель недоступна')
+    stageEmptyText.textContent = 'Модель недоступна'
+    stageEmpty.classList.remove('is-hidden')
+    return
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setCameraState('error', 'Нет getUserMedia')
+    stageEmptyText.textContent = 'Камера недоступна в этом браузере'
+    stageEmpty.classList.remove('is-hidden')
+    trackMetrika('camera_error', {
+      reason: 'getUserMedia_unavailable',
+    })
     return
   }
 
   try {
+    stageEmptyText.textContent = 'Запрашиваем доступ к камере'
     stream = await navigator.mediaDevices.getUserMedia(getCameraConstraints())
 
     video.srcObject = stream
@@ -1305,12 +1334,18 @@ async function startCamera() {
       handTracking: handTrackingEnabled,
       faceTracking: faceTrackingEnabled,
       multiFace: multiFaceTrackingEnabled,
+      streamlabsOutput: isStreamlabsOutput,
+      autostart: shouldAutostartCamera,
     })
   } catch (error) {
     console.error(error)
     setCameraState('error', 'Нет доступа')
+    stageEmptyText.textContent = getCameraErrorMessage(error)
+    stageEmpty.classList.remove('is-hidden')
     trackMetrika('camera_error', {
       reason: error instanceof Error ? error.name : 'unknown',
+      streamlabsOutput: isStreamlabsOutput,
+      autostart: shouldAutostartCamera,
     })
   }
 }
@@ -1330,6 +1365,7 @@ function stopCamera() {
   context.clearRect(0, 0, canvas.width, canvas.height)
   cursorDot.classList.remove('is-visible')
   stageEmpty.classList.remove('is-hidden')
+  stageEmptyText.textContent = 'Камера выключена'
   cameraButton.classList.remove('is-active')
   cameraButton.querySelector('span')!.textContent = 'Камера'
   setCameraState('idle', 'Ожидание')
@@ -3086,6 +3122,30 @@ function getCameraConstraints(): MediaStreamConstraints {
       facingMode: 'user',
     },
   }
+}
+
+function getCameraErrorMessage(error: unknown) {
+  if (!(error instanceof DOMException)) {
+    return 'Камера не запустилась'
+  }
+
+  if (error.name === 'NotAllowedError' || error.name === 'SecurityError') {
+    return 'Доступ к камере запрещен'
+  }
+
+  if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+    return 'Камера не найдена'
+  }
+
+  if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+    return 'Камера занята другой программой'
+  }
+
+  if (error.name === 'OverconstrainedError' || error.name === 'ConstraintNotSatisfiedError') {
+    return 'Камера не поддерживает выбранный режим'
+  }
+
+  return 'Камера не запустилась'
 }
 
 function setMirrorMode(next: boolean) {
