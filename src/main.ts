@@ -718,6 +718,35 @@ app.innerHTML = `
                 </div>
                 <input id="maskSaturation" class="range-input" type="range" min="-50" max="60" step="1" value="0" />
               </div>
+              <div>
+                <div class="mask-stability-head">
+                  <label class="input-label" for="maskContrast">Контраст</label>
+                  <strong id="maskContrastValue">0</strong>
+                </div>
+                <input id="maskContrast" class="range-input" type="range" min="-40" max="60" step="1" value="0" />
+              </div>
+              <div>
+                <div class="mask-stability-head">
+                  <label class="input-label" for="maskTemperature">Температура</label>
+                  <strong id="maskTemperatureValue">0</strong>
+                </div>
+                <input id="maskTemperature" class="range-input" type="range" min="-50" max="50" step="1" value="0" />
+                <div class="range-captions">
+                  <span>Холоднее</span>
+                  <span>Теплее</span>
+                </div>
+              </div>
+              <div>
+                <div class="mask-stability-head">
+                  <label class="input-label" for="maskTint">Оттенок</label>
+                  <strong id="maskTintValue">0</strong>
+                </div>
+                <input id="maskTint" class="range-input" type="range" min="-50" max="50" step="1" value="0" />
+                <div class="range-captions">
+                  <span>Зеленее</span>
+                  <span>Розовее</span>
+                </div>
+              </div>
             </div>
           </div>
           <div class="mask-slots" id="maskSlotsBlock">
@@ -862,6 +891,12 @@ const maskBrightnessSlider = getElement<HTMLInputElement>('maskBrightness')
 const maskBrightnessValue = getElement<HTMLElement>('maskBrightnessValue')
 const maskSaturationSlider = getElement<HTMLInputElement>('maskSaturation')
 const maskSaturationValue = getElement<HTMLElement>('maskSaturationValue')
+const maskContrastSlider = getElement<HTMLInputElement>('maskContrast')
+const maskContrastValue = getElement<HTMLElement>('maskContrastValue')
+const maskTemperatureSlider = getElement<HTMLInputElement>('maskTemperature')
+const maskTemperatureValue = getElement<HTMLElement>('maskTemperatureValue')
+const maskTintSlider = getElement<HTMLInputElement>('maskTint')
+const maskTintValue = getElement<HTMLElement>('maskTintValue')
 const maskModeTabs = getElement<HTMLDivElement>('maskModeTabs')
 const faceSwapOptions = getElement<HTMLDivElement>('faceSwapOptions')
 const faceSwapEndpoint = getElement<HTMLInputElement>('faceSwapEndpoint')
@@ -916,6 +951,9 @@ let maskSkinColor = readMaskSkinColor()
 let maskColorStrength = readMaskColorStrength()
 let maskBrightness = readMaskBrightness()
 let maskSaturation = readMaskSaturation()
+let maskContrast = readMaskContrast()
+let maskTemperature = readMaskTemperature()
+let maskTint = readMaskTint()
 let maskLayer: FaceMaskLayer | null = null
 let maskImageUrl: string | null = null
 let maskSourceBlob: Blob | null = null
@@ -963,6 +1001,9 @@ setMaskSkinColor(maskSkinColor)
 setMaskColorStrength(maskColorStrength)
 setMaskBrightness(maskBrightness)
 setMaskSaturation(maskSaturation)
+setMaskContrast(maskContrast)
+setMaskTemperature(maskTemperature)
+setMaskTint(maskTint)
 setMaskEnabled(maskEnabled)
 updateMaskState()
 setModelState('loading', 'Загрузка')
@@ -1132,6 +1173,30 @@ maskSaturationSlider.addEventListener('input', () => {
 
 maskSaturationSlider.addEventListener('change', () => {
   trackMaskSetting('saturation', maskSaturation)
+})
+
+maskContrastSlider.addEventListener('input', () => {
+  setMaskContrast(Number(maskContrastSlider.value))
+})
+
+maskContrastSlider.addEventListener('change', () => {
+  trackMaskSetting('contrast', maskContrast)
+})
+
+maskTemperatureSlider.addEventListener('input', () => {
+  setMaskTemperature(Number(maskTemperatureSlider.value))
+})
+
+maskTemperatureSlider.addEventListener('change', () => {
+  trackMaskSetting('temperature', maskTemperature)
+})
+
+maskTintSlider.addEventListener('input', () => {
+  setMaskTint(Number(maskTintSlider.value))
+})
+
+maskTintSlider.addEventListener('change', () => {
+  trackMaskSetting('tint', maskTint)
 })
 
 maskSampleSkinButton.addEventListener('click', () => {
@@ -1912,8 +1977,11 @@ function applyMaskColorCorrection() {
   const strength = maskColorStrength / 100
   const brightness = maskBrightness
   const saturation = maskSaturation
+  const contrast = maskContrast
+  const temperature = maskTemperature
+  const tint = maskTint
 
-  if (strength <= 0 && brightness === 0 && saturation === 0) {
+  if (strength <= 0 && brightness === 0 && saturation === 0 && contrast === 0 && temperature === 0 && tint === 0) {
     return
   }
 
@@ -1921,9 +1989,17 @@ function applyMaskColorCorrection() {
   maskFeatherContext.drawImage(maskRenderCanvas, 0, 0)
   maskRenderContext.clearRect(0, 0, maskRenderCanvas.width, maskRenderCanvas.height)
   maskRenderContext.save()
-  maskRenderContext.filter = `brightness(${100 + brightness}%) saturate(${100 + saturation}%)`
+  maskRenderContext.filter = `brightness(${100 + brightness}%) contrast(${100 + contrast}%) saturate(${100 + saturation}%)`
   maskRenderContext.drawImage(maskFeatherCanvas, 0, 0)
   maskRenderContext.restore()
+
+  if (temperature !== 0) {
+    applyMaskColorOverlay(temperature > 0 ? '#ffb36c' : '#6ca8ff', Math.abs(temperature) / 170)
+  }
+
+  if (tint !== 0) {
+    applyMaskColorOverlay(tint > 0 ? '#ff7bbd' : '#58d06f', Math.abs(tint) / 190)
+  }
 
   if (strength <= 0) {
     return
@@ -1940,6 +2016,22 @@ function applyMaskColorCorrection() {
   maskRenderContext.save()
   maskRenderContext.globalAlpha = strength
   maskRenderContext.globalCompositeOperation = 'color'
+  maskRenderContext.drawImage(maskFeatherCanvas, 0, 0)
+  maskRenderContext.restore()
+}
+
+function applyMaskColorOverlay(color: string, alpha: number) {
+  maskFeatherContext.clearRect(0, 0, maskFeatherCanvas.width, maskFeatherCanvas.height)
+  maskFeatherContext.save()
+  maskFeatherContext.fillStyle = color
+  maskFeatherContext.fillRect(0, 0, maskFeatherCanvas.width, maskFeatherCanvas.height)
+  maskFeatherContext.globalCompositeOperation = 'destination-in'
+  maskFeatherContext.drawImage(maskRenderCanvas, 0, 0)
+  maskFeatherContext.restore()
+
+  maskRenderContext.save()
+  maskRenderContext.globalAlpha = clamp(alpha, 0, 0.35)
+  maskRenderContext.globalCompositeOperation = 'soft-light'
   maskRenderContext.drawImage(maskFeatherCanvas, 0, 0)
   maskRenderContext.restore()
 }
@@ -3062,6 +3154,27 @@ function setMaskSaturation(next: number) {
   maskSaturationValue.textContent = signedValue(maskSaturation)
 }
 
+function setMaskContrast(next: number) {
+  maskContrast = clamp(Math.round(next), -40, 60)
+  localStorage.setItem('xedoc-hands-mask-contrast', String(maskContrast))
+  maskContrastSlider.value = String(maskContrast)
+  maskContrastValue.textContent = signedValue(maskContrast)
+}
+
+function setMaskTemperature(next: number) {
+  maskTemperature = clamp(Math.round(next), -50, 50)
+  localStorage.setItem('xedoc-hands-mask-temperature', String(maskTemperature))
+  maskTemperatureSlider.value = String(maskTemperature)
+  maskTemperatureValue.textContent = signedValue(maskTemperature)
+}
+
+function setMaskTint(next: number) {
+  maskTint = clamp(Math.round(next), -50, 50)
+  localStorage.setItem('xedoc-hands-mask-tint', String(maskTint))
+  maskTintSlider.value = String(maskTint)
+  maskTintValue.textContent = signedValue(maskTint)
+}
+
 function updateMaskState() {
   const hasMainImage = Boolean(maskImageUrl && maskSourceBlob)
   const meshReady = hasMeshMaskLayer()
@@ -3268,6 +3381,24 @@ function readMaskSaturation() {
   const raw = localStorage.getItem('xedoc-hands-mask-saturation')
   const saved = raw === null ? Number.NaN : Number(raw)
   return Number.isFinite(saved) ? clamp(Math.round(saved), -50, 60) : 0
+}
+
+function readMaskContrast() {
+  const raw = localStorage.getItem('xedoc-hands-mask-contrast')
+  const saved = raw === null ? Number.NaN : Number(raw)
+  return Number.isFinite(saved) ? clamp(Math.round(saved), -40, 60) : 0
+}
+
+function readMaskTemperature() {
+  const raw = localStorage.getItem('xedoc-hands-mask-temperature')
+  const saved = raw === null ? Number.NaN : Number(raw)
+  return Number.isFinite(saved) ? clamp(Math.round(saved), -50, 50) : 0
+}
+
+function readMaskTint() {
+  const raw = localStorage.getItem('xedoc-hands-mask-tint')
+  const saved = raw === null ? Number.NaN : Number(raw)
+  return Number.isFinite(saved) ? clamp(Math.round(saved), -50, 50) : 0
 }
 
 function getElement<T extends HTMLElement>(id: string) {
