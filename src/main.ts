@@ -748,10 +748,6 @@ const maskAlphaCanvas = document.createElement('canvas')
 const maskAlphaContext = getCanvasContext(maskAlphaCanvas)
 const maskFeatherCanvas = document.createElement('canvas')
 const maskFeatherContext = getCanvasContext(maskFeatherCanvas)
-const maskSourceAlphaCanvas = document.createElement('canvas')
-const maskSourceAlphaContext = getCanvasContext(maskSourceAlphaCanvas)
-const maskSourceFeatherCanvas = document.createElement('canvas')
-const maskSourceFeatherContext = getCanvasContext(maskSourceFeatherCanvas)
 const faceSwapCaptureCanvas = document.createElement('canvas')
 const faceSwapCaptureContext = getCanvasContext(faceSwapCaptureCanvas)
 const faceSwapRequestIntervalMs = 180
@@ -773,7 +769,6 @@ let maskMode: MaskMode = readMaskMode()
 let maskStability = readMaskStability()
 let maskEdgeFeather = readMaskEdgeFeather()
 let maskLayer: FaceMaskLayer | null = null
-let maskSourceAlphaKey: string | null = null
 let maskImageUrl: string | null = null
 let maskSourceBlob: Blob | null = null
 let previousMaskFaceLandmarks: NormalizedLandmark[] | null = null
@@ -1457,7 +1452,7 @@ function drawFaceMask(landmarks: NormalizedLandmark[]) {
   }
 
   maskRenderContext.restore()
-  applyRenderedMaskFeather(layer, landmarks, renderTriangles)
+  applyRenderedMaskFeather(landmarks)
   applySoftFaceMask(landmarks)
 
   context.save()
@@ -1498,45 +1493,14 @@ function averageTriangleZ(landmarks: NormalizedLandmark[]) {
   return landmarks.reduce((sum, landmark) => sum + (landmark.z ?? 0), 0) / landmarks.length
 }
 
-function applyRenderedMaskFeather(
-  layer: FaceMaskLayer,
-  landmarks: NormalizedLandmark[],
-  renderTriangles: MaskTriangleRender[],
-) {
+function applyRenderedMaskFeather(landmarks: NormalizedLandmark[]) {
   const blur = getAdaptiveMaskEdgeFeather(landmarks)
 
   if (blur <= 0) {
     return
   }
 
-  applySourceMaskEdgeFeather(layer, landmarks, renderTriangles, blur)
   applyTargetFaceEdgeFeather(landmarks, blur)
-}
-
-function applySourceMaskEdgeFeather(
-  layer: FaceMaskLayer,
-  landmarks: NormalizedLandmark[],
-  renderTriangles: MaskTriangleRender[],
-  blur: number,
-) {
-  ensureSourceMaskAlpha(layer, landmarks, blur)
-
-  maskAlphaContext.clearRect(0, 0, maskAlphaCanvas.width, maskAlphaCanvas.height)
-  maskAlphaContext.save()
-  maskAlphaContext.imageSmoothingEnabled = true
-  maskAlphaContext.imageSmoothingQuality = 'high'
-
-  for (const triangle of renderTriangles) {
-    drawWarpedTriangle(maskAlphaContext, maskSourceAlphaCanvas, triangle.source, triangle.target, 0.6)
-  }
-
-  maskAlphaContext.restore()
-
-  maskRenderContext.save()
-  maskRenderContext.globalCompositeOperation = 'destination-in'
-  maskRenderContext.drawImage(maskAlphaCanvas, 0, 0)
-  maskRenderContext.drawImage(maskAlphaCanvas, 0, 0)
-  maskRenderContext.restore()
 }
 
 function applyTargetFaceEdgeFeather(landmarks: NormalizedLandmark[], blur: number) {
@@ -1590,64 +1554,6 @@ function getAdaptiveMaskEdgeFeather(landmarks: NormalizedLandmark[]) {
   const turn = clamp(((pose ? Math.abs(pose.yaw) : 0) - 0.16) / 0.32, 0, 1)
 
   return Math.round(maskEdgeFeather * (1 + turn * 0.85))
-}
-
-function ensureSourceMaskAlpha(layer: FaceMaskLayer, landmarks: NormalizedLandmark[], targetBlur: number) {
-  const sourceBlur = getSourceMaskEdgeFeather(layer, landmarks, targetBlur)
-  const key = `${layer.width}:${layer.height}:${sourceBlur}`
-
-  if (maskSourceAlphaKey === key) {
-    return
-  }
-
-  maskSourceAlphaKey = key
-  syncSourceMaskCanvases(layer)
-
-  const erosion = Math.max(1, Math.round(sourceBlur * 1.05))
-  const diagonal = Math.max(1, Math.round(erosion * 0.7))
-  const offsets: Point2D[] = [
-    { x: erosion, y: 0 },
-    { x: -erosion, y: 0 },
-    { x: 0, y: erosion },
-    { x: 0, y: -erosion },
-    { x: diagonal, y: diagonal },
-    { x: diagonal, y: -diagonal },
-    { x: -diagonal, y: diagonal },
-    { x: -diagonal, y: -diagonal },
-  ]
-
-  maskSourceAlphaContext.clearRect(0, 0, maskSourceAlphaCanvas.width, maskSourceAlphaCanvas.height)
-  maskSourceAlphaContext.save()
-  drawFaceOvalPathInSpace(maskSourceAlphaContext, layer.landmarks, 1.08, layer.width, layer.height)
-  maskSourceAlphaContext.fillStyle = '#fff'
-  maskSourceAlphaContext.fill()
-  maskSourceAlphaContext.restore()
-
-  maskSourceFeatherContext.clearRect(0, 0, maskSourceFeatherCanvas.width, maskSourceFeatherCanvas.height)
-  maskSourceFeatherContext.save()
-  maskSourceFeatherContext.drawImage(maskSourceAlphaCanvas, 0, 0)
-  maskSourceFeatherContext.globalCompositeOperation = 'destination-in'
-
-  for (const offset of offsets) {
-    maskSourceFeatherContext.drawImage(maskSourceAlphaCanvas, offset.x, offset.y)
-  }
-
-  maskSourceFeatherContext.restore()
-
-  maskSourceAlphaContext.clearRect(0, 0, maskSourceAlphaCanvas.width, maskSourceAlphaCanvas.height)
-  maskSourceAlphaContext.save()
-  maskSourceAlphaContext.filter = `blur(${sourceBlur}px)`
-  maskSourceAlphaContext.drawImage(maskSourceFeatherCanvas, 0, 0)
-  maskSourceAlphaContext.restore()
-}
-
-function getSourceMaskEdgeFeather(layer: FaceMaskLayer, landmarks: NormalizedLandmark[], targetBlur: number) {
-  const sourceBounds = getLandmarkBoundsInSpace(layer.landmarks, layer.width, layer.height)
-  const targetBounds = getLandmarkBoundsInSpace(landmarks, canvas.width, canvas.height)
-  const scale = sourceBounds.width / Math.max(targetBounds.width, 1)
-  const raw = clamp(Math.round(targetBlur * scale), 1, 160)
-
-  return Math.max(1, Math.round(raw / 2) * 2)
 }
 function compensateMaskLag(landmarks: NormalizedLandmark[], now: number) {
   const previousRaw = previousMaskFaceLandmarks
@@ -1978,15 +1884,6 @@ function syncMaskCanvases() {
   }
 }
 
-function syncSourceMaskCanvases(layer: FaceMaskLayer) {
-  if (maskSourceAlphaCanvas.width !== layer.width || maskSourceAlphaCanvas.height !== layer.height) {
-    maskSourceAlphaCanvas.width = layer.width
-    maskSourceAlphaCanvas.height = layer.height
-    maskSourceFeatherCanvas.width = layer.width
-    maskSourceFeatherCanvas.height = layer.height
-  }
-}
-
 function fireFaceSignal(
   gesture: GestureKey,
   confidence: number,
@@ -2287,7 +2184,6 @@ async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string, sourc
     : null
   maskImageUrl = imageUrl
   maskSourceBlob = sourceBlob
-  maskSourceAlphaKey = null
   maskPreview.src = imageUrl
   setMaskEnabled(true)
 
@@ -2370,7 +2266,6 @@ function setMaskStability(next: number) {
 
 function setMaskEdgeFeather(next: number) {
   maskEdgeFeather = clamp(Math.round(next), 0, 80)
-  maskSourceAlphaKey = null
   localStorage.setItem('xedoc-hands-mask-edge-feather', String(maskEdgeFeather))
   maskEdgeFeatherSlider.value = String(maskEdgeFeather)
   maskEdgeFeatherValue.textContent = `${maskEdgeFeather}px`
@@ -2603,23 +2498,6 @@ function landmarkToSourcePoint(landmark: NormalizedLandmark, layer: FaceMaskLaye
   return {
     x: landmark.x * layer.width,
     y: landmark.y * layer.height,
-  }
-}
-
-function getLandmarkBoundsInSpace(landmarks: NormalizedLandmark[], width: number, height: number) {
-  const points = landmarks.map((landmark) => landmarkToPointInSpace(landmark, width, height))
-  const xs = points.map((point) => point.x)
-  const ys = points.map((point) => point.y)
-  const minX = Math.min(...xs)
-  const maxX = Math.max(...xs)
-  const minY = Math.min(...ys)
-  const maxY = Math.max(...ys)
-
-  return {
-    x: minX,
-    y: minY,
-    width: maxX - minX,
-    height: maxY - minY,
   }
 }
 
