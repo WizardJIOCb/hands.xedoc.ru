@@ -1,4 +1,4 @@
-import './style.css'
+﻿import './style.css'
 import {
   DrawingUtils,
   FaceLandmarker,
@@ -580,75 +580,6 @@ app.innerHTML = `
 
         <section class="panel">
           <div class="panel-head">
-            <h2>Экран</h2>
-            <label class="switch">
-              <input id="hudToggle" type="checkbox" checked />
-              <span></span>
-            </label>
-          </div>
-          <p class="panel-state" id="hudState">HUD включен</p>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <h2>Руки</h2>
-            <label class="switch">
-              <input id="handTrackingToggle" type="checkbox" checked />
-              <span></span>
-            </label>
-          </div>
-          <p class="panel-state" id="handTrackingState">Трекинг включен</p>
-          <div class="option-row">
-            <span>Линии рук</span>
-            <label class="switch">
-              <input id="handMarkersToggle" type="checkbox" checked />
-              <span></span>
-            </label>
-          </div>
-          <p class="panel-state mode-state" id="handMarkersState">Линии и точки включены</p>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <h2>Лицо</h2>
-            <label class="switch">
-              <input id="faceTrackingToggle" type="checkbox" checked />
-              <span></span>
-            </label>
-          </div>
-          <p class="panel-state" id="faceTrackingState">Трекинг и маркеры включены</p>
-          <div class="option-row">
-            <span>Несколько лиц</span>
-            <label class="switch">
-              <input id="multiFaceToggle" type="checkbox" />
-              <span></span>
-            </label>
-          </div>
-          <p class="panel-state mode-state" id="multiFaceState">1 лицо</p>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <h2>Производительность</h2>
-            <span id="performanceTitle">Авто</span>
-          </div>
-          <div class="mask-mode" id="performanceModeTabs" aria-label="Режим производительности">
-            <button class="mask-mode-button" data-performance-mode="performance" type="button">Быстрее</button>
-            <button class="mask-mode-button" data-performance-mode="quality" type="button">Качество</button>
-          </div>
-          <p class="panel-state mode-state" id="performanceModeState">640x480</p>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <h2>Режим</h2>
-            <span id="presetTitle">ПК</span>
-          </div>
-          <div class="preset-tabs" id="presetTabs"></div>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
             <h2>Маска</h2>
             <label class="switch">
               <input id="maskToggle" type="checkbox" />
@@ -829,6 +760,75 @@ app.innerHTML = `
             <p class="panel-state" id="faceSwapState">Ожидает локальный bridge</p>
           </div>
           <img class="mask-preview" id="maskPreview" alt="" />
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Экран</h2>
+            <label class="switch">
+              <input id="hudToggle" type="checkbox" checked />
+              <span></span>
+            </label>
+          </div>
+          <p class="panel-state" id="hudState">HUD включен</p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Руки</h2>
+            <label class="switch">
+              <input id="handTrackingToggle" type="checkbox" checked />
+              <span></span>
+            </label>
+          </div>
+          <p class="panel-state" id="handTrackingState">Трекинг включен</p>
+          <div class="option-row">
+            <span>Линии рук</span>
+            <label class="switch">
+              <input id="handMarkersToggle" type="checkbox" checked />
+              <span></span>
+            </label>
+          </div>
+          <p class="panel-state mode-state" id="handMarkersState">Линии и точки включены</p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Лицо</h2>
+            <label class="switch">
+              <input id="faceTrackingToggle" type="checkbox" checked />
+              <span></span>
+            </label>
+          </div>
+          <p class="panel-state" id="faceTrackingState">Трекинг и маркеры включены</p>
+          <div class="option-row">
+            <span>Несколько лиц</span>
+            <label class="switch">
+              <input id="multiFaceToggle" type="checkbox" />
+              <span></span>
+            </label>
+          </div>
+          <p class="panel-state mode-state" id="multiFaceState">1 лицо</p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Производительность</h2>
+            <span id="performanceTitle">Авто</span>
+          </div>
+          <div class="mask-mode" id="performanceModeTabs" aria-label="Режим производительности">
+            <button class="mask-mode-button" data-performance-mode="performance" type="button">Быстрее</button>
+            <button class="mask-mode-button" data-performance-mode="quality" type="button">Качество</button>
+          </div>
+          <p class="panel-state mode-state" id="performanceModeState">640x480</p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Режим</h2>
+            <span id="presetTitle">ПК</span>
+          </div>
+          <div class="preset-tabs" id="presetTabs"></div>
         </section>
 
         <section class="panel">
