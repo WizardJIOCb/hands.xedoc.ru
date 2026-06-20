@@ -500,7 +500,7 @@ app.innerHTML = `
             <i data-lucide="webcam"></i>
             <span id="stageEmptyText">Камера выключена</span>
           </div>
-          <div class="hud">
+          <div class="hud" id="hud">
             <div>
               <span class="hud-label">Жест</span>
               <strong id="currentGesture">Нет руки</strong>
@@ -576,6 +576,17 @@ app.innerHTML = `
               <strong id="faceStatus">Ожидание</strong>
             </div>
           </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Экран</h2>
+            <label class="switch">
+              <input id="hudToggle" type="checkbox" checked />
+              <span></span>
+            </label>
+          </div>
+          <p class="panel-state" id="hudState">HUD включен</p>
         </section>
 
         <section class="panel">
@@ -789,6 +800,7 @@ const video = getElement<HTMLVideoElement>('cameraVideo')
 const canvas = getElement<HTMLCanvasElement>('overlayCanvas')
 const canvasContext = canvas.getContext('2d')
 const cursorDot = getElement<HTMLDivElement>('cursorDot')
+const hud = getElement<HTMLDivElement>('hud')
 const stageEmpty = getElement<HTMLDivElement>('stageEmpty')
 const stageEmptyText = getElement<HTMLSpanElement>('stageEmptyText')
 const cameraButton = getElement<HTMLButtonElement>('cameraButton')
@@ -807,6 +819,8 @@ const faceTrackingToggle = getElement<HTMLInputElement>('faceTrackingToggle')
 const faceTrackingState = getElement<HTMLElement>('faceTrackingState')
 const multiFaceToggle = getElement<HTMLInputElement>('multiFaceToggle')
 const multiFaceState = getElement<HTMLElement>('multiFaceState')
+const hudToggle = getElement<HTMLInputElement>('hudToggle')
+const hudState = getElement<HTMLElement>('hudState')
 const performanceTitle = getElement<HTMLElement>('performanceTitle')
 const performanceModeTabs = getElement<HTMLDivElement>('performanceModeTabs')
 const performanceModeState = getElement<HTMLElement>('performanceModeState')
@@ -892,6 +906,7 @@ let handTrackingEnabled = localStorage.getItem('xedoc-hands-hand-tracking') !== 
 let handMarkersEnabled = localStorage.getItem('xedoc-hands-hand-markers') !== 'off'
 let faceTrackingEnabled = localStorage.getItem('xedoc-hands-face-tracking') !== 'off'
 let multiFaceTrackingEnabled = localStorage.getItem('xedoc-hands-multi-face') === 'on'
+let hudVisible = localStorage.getItem('xedoc-hands-hud') !== 'off'
 let performanceMode: PerformanceMode = readPerformanceMode()
 let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
 let maskMode: MaskMode = readMaskMode()
@@ -939,6 +954,7 @@ setHandTrackingEnabled(handTrackingEnabled)
 setHandMarkersEnabled(handMarkersEnabled)
 setFaceTrackingEnabled(faceTrackingEnabled)
 setMultiFaceTrackingEnabled(multiFaceTrackingEnabled, false)
+setHudVisible(hudVisible)
 setPerformanceMode(performanceMode)
 setMaskMode(maskMode)
 setMaskStability(maskStability)
@@ -1001,6 +1017,11 @@ multiFaceToggle.addEventListener('change', () => {
   trackToggle('multi_face_toggled', multiFaceToggle.checked, {
     faceLimit: getFaceCountLimit(),
   })
+})
+
+hudToggle.addEventListener('change', () => {
+  setHudVisible(hudToggle.checked)
+  trackToggle('hud_toggled', hudToggle.checked)
 })
 
 performanceModeTabs.addEventListener('click', (event) => {
@@ -1173,6 +1194,7 @@ trackMetrika('app_loaded', {
   handTracking: handTrackingEnabled,
   faceTracking: faceTrackingEnabled,
   multiFace: multiFaceTrackingEnabled,
+  hudVisible,
   maskMode,
   maskEnabled,
   streamlabsOutput: isStreamlabsOutput,
@@ -2972,6 +2994,14 @@ function setMultiFaceTrackingEnabled(next: boolean, rebuild = true) {
   if (rebuild && faceLandmarker) {
     void rebuildFaceLandmarker()
   }
+}
+
+function setHudVisible(next: boolean) {
+  hudVisible = next
+  localStorage.setItem('xedoc-hands-hud', next ? 'on' : 'off')
+  hudToggle.checked = next
+  hud.hidden = !next
+  hudState.textContent = next ? 'HUD включен' : 'HUD скрыт'
 }
 
 function setPerformanceMode(next: PerformanceMode) {
