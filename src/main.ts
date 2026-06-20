@@ -151,7 +151,6 @@ type MaskMotionState = {
   previousLandmarks: NormalizedLandmark[] | null
   displayedLandmarks: NormalizedLandmark[] | null
   previousAt: number
-  occludedUntil: number
 }
 
 type MaskTriangleRender = {
@@ -2271,18 +2270,6 @@ function applyHandOcclusionToMask(faceLandmarks: NormalizedLandmark[]) {
   maskRenderContext.restore()
 }
 
-function isHandOverFace(faceLandmarks: NormalizedLandmark[]) {
-  if (!handTrackingEnabled || currentHandLandmarks.length === 0) {
-    return false
-  }
-
-  const faceBox = expandRect(getLandmarkRect(faceLandmarks), maskHandOcclusionPadding * 0.5)
-
-  return currentHandLandmarks.some((hand) =>
-    rectsIntersect(faceBox, expandRect(getLandmarkRect(hand), maskHandOcclusionPadding * 0.5)),
-  )
-}
-
 function eraseHandFromMask(points: Point2D[], padding: number) {
   const box = getPointRect(points)
   const handScale = Math.max(box.maxX - box.minX, box.maxY - box.minY)
@@ -2424,15 +2411,6 @@ function compensateMaskLag(landmarks: NormalizedLandmark[], now: number, motion:
   if (!previousRaw || !previousDisplayed || previousRaw.length !== landmarks.length || !previousAt) {
     motion.displayedLandmarks = current
     return current
-  }
-
-  if (maskHandOcclusionEnabled && isHandOverFace(landmarks)) {
-    motion.occludedUntil = now + 160
-  }
-
-  if (motion.occludedUntil > now) {
-    motion.displayedLandmarks = cloneLandmarks(previousDisplayed)
-    return cloneLandmarks(previousDisplayed)
   }
 
   const dt = clamp(now - previousAt, 8, 80)
@@ -3568,7 +3546,6 @@ function createMaskMotionStates() {
     previousLandmarks: null,
     displayedLandmarks: null,
     previousAt: 0,
-    occludedUntil: 0,
   }))
 }
 
