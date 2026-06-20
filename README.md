@@ -74,6 +74,22 @@ http://127.0.0.1:8787/gesture
 }
 ```
 
+## Аналитика
+
+На сайте подключена Яндекс Метрика, счетчик `110018332`.
+
+Основные цели для отчетов:
+
+- `gesture_used` - сработавшие жесты и лицевые сигналы. В параметрах есть `gesture`, `gestureTitle`, `preset`, `action`, `source`, `confidence`.
+- `mask_changed` - смена основной маски или маски отдельного лица. В параметрах есть `slot`, `mode`, `width`, `height`, `faceDetected`, `maskCount`.
+- `face_count_changed` - изменение количества лиц в кадре. В параметрах есть `count`, `maxCount`, `multiFace`, `faceLimit`, `maskEnabled`, `maskCount`.
+- `mask_setting_changed` - изменение настроек маски: стабилизация, мягкий край, цвет лица, яркость и насыщенность.
+- `mask_toggled`, `mask_mode_changed`, `multi_face_toggled`, `face_tracking_toggled`, `hand_tracking_toggled`, `hand_markers_toggled` - ключевые переключатели интерфейса.
+- `performance_mode_changed`, `camera_started`, `camera_stopped`, `camera_error` - камера и режим производительности.
+- `preset_changed`, `webhook_toggled`, `webhook_endpoint_changed`, `faceswap_endpoint_changed`, `faceswap_bridge_status` - интеграции и режимы управления.
+
+URL webhook и FaceSwap endpoint в Метрику не отправляются, фиксируется только факт изменения.
+
 ## Локальный запуск
 
 ```powershell

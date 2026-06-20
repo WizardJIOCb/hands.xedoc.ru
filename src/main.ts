@@ -152,8 +152,17 @@ type MaskTriangleRender = {
   depth: number
 }
 
+type MetrikaParams = Record<string, string | number | boolean>
+
+declare global {
+  interface Window {
+    ym?: (...args: unknown[]) => void
+  }
+}
+
 type VisionFileset = Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>>
 
+const metrikaCounterId = 110018332
 const tasksVersion = '0.10.35'
 const wasmPath = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${tasksVersion}/wasm`
 const gestureModelPath =
@@ -894,8 +903,11 @@ let faceSwapFrameImage: HTMLImageElement | null = null
 let faceSwapFrameUrl: string | null = null
 let faceSwapInFlight = false
 let faceSwapLastRequestAt = 0
+let faceSwapBridgeStatus: 'idle' | 'ok' | 'error' = 'idle'
 let lastEvent: GestureEvent | null = null
 let eventSequence = 0
+let lastTrackedFaceCount = -1
+let maxTrackedFaceCount = 0
 let frameCount = 0
 let fpsStartedAt = performance.now()
 let pinchDown = false
@@ -943,26 +955,37 @@ cameraButton.addEventListener('click', () => {
 
 mirrorButton.addEventListener('click', () => {
   setMirrorMode(!mirrorMode)
+  trackToggle('mirror_toggled', mirrorMode)
 })
 
 maskToggle.addEventListener('change', () => {
   setMaskEnabled(maskToggle.checked)
+  trackToggle('mask_toggled', maskToggle.checked, {
+    maskMode,
+    maskCount: getLoadedMaskCount(),
+  })
 })
 
 handTrackingToggle.addEventListener('change', () => {
   setHandTrackingEnabled(handTrackingToggle.checked)
+  trackToggle('hand_tracking_toggled', handTrackingToggle.checked)
 })
 
 handMarkersToggle.addEventListener('change', () => {
   setHandMarkersEnabled(handMarkersToggle.checked)
+  trackToggle('hand_markers_toggled', handMarkersToggle.checked)
 })
 
 faceTrackingToggle.addEventListener('change', () => {
   setFaceTrackingEnabled(faceTrackingToggle.checked)
+  trackToggle('face_tracking_toggled', faceTrackingToggle.checked)
 })
 
 multiFaceToggle.addEventListener('change', () => {
   setMultiFaceTrackingEnabled(multiFaceToggle.checked)
+  trackToggle('multi_face_toggled', multiFaceToggle.checked, {
+    faceLimit: getFaceCountLimit(),
+  })
 })
 
 performanceModeTabs.addEventListener('click', (event) => {
@@ -974,7 +997,15 @@ performanceModeTabs.addEventListener('click', (event) => {
   }
 
   const shouldRestartCamera = isRunning && mode !== performanceMode
+  const changed = mode !== performanceMode
   setPerformanceMode(mode)
+
+  if (changed) {
+    trackMetrika('performance_mode_changed', {
+      mode,
+      camera: mode === 'performance' ? '640x480' : '1280x720',
+    })
+  }
 
   if (shouldRestartCamera) {
     stopCamera()
@@ -987,7 +1018,15 @@ maskModeTabs.addEventListener('click', (event) => {
   const mode = button?.dataset.maskMode
 
   if (mode === 'mesh' || mode === 'faceswap') {
+    const changed = mode !== maskMode
     setMaskMode(mode)
+
+    if (changed) {
+      trackMetrika('mask_mode_changed', {
+        mode,
+        maskCount: getLoadedMaskCount(),
+      })
+    }
   }
 })
 
@@ -1015,33 +1054,62 @@ maskStabilitySlider.addEventListener('input', () => {
   setMaskStability(Number(maskStabilitySlider.value))
 })
 
+maskStabilitySlider.addEventListener('change', () => {
+  trackMaskSetting('stability', maskStability)
+})
+
 maskEdgeFeatherSlider.addEventListener('input', () => {
   setMaskEdgeFeather(Number(maskEdgeFeatherSlider.value))
+})
+
+maskEdgeFeatherSlider.addEventListener('change', () => {
+  trackMaskSetting('edgeFeather', maskEdgeFeather)
 })
 
 maskSkinColorInput.addEventListener('input', () => {
   setMaskSkinColor(maskSkinColorInput.value)
 })
 
+maskSkinColorInput.addEventListener('change', () => {
+  trackMaskSetting('skinColor', maskSkinColor)
+})
+
 maskColorStrengthSlider.addEventListener('input', () => {
   setMaskColorStrength(Number(maskColorStrengthSlider.value))
+})
+
+maskColorStrengthSlider.addEventListener('change', () => {
+  trackMaskSetting('skinColorStrength', maskColorStrength)
 })
 
 maskBrightnessSlider.addEventListener('input', () => {
   setMaskBrightness(Number(maskBrightnessSlider.value))
 })
 
+maskBrightnessSlider.addEventListener('change', () => {
+  trackMaskSetting('brightness', maskBrightness)
+})
+
 maskSaturationSlider.addEventListener('input', () => {
   setMaskSaturation(Number(maskSaturationSlider.value))
 })
 
+maskSaturationSlider.addEventListener('change', () => {
+  trackMaskSetting('saturation', maskSaturation)
+})
+
 maskSampleSkinButton.addEventListener('click', () => {
+  trackMetrika('mask_skin_sample_clicked', {
+    maskMode,
+  })
   sampleMaskSkinColor()
 })
 
 faceSwapEndpoint.addEventListener('change', () => {
   localStorage.setItem('xedoc-hands-faceswap-endpoint', faceSwapEndpoint.value.trim())
   faceSwapState.textContent = 'Endpoint обновлен'
+  faceSwapBridgeStatus = 'idle'
+  trackMetrika('faceswap_endpoint_changed')
 })
 
 copyButton.addEventListener('click', () => {
@@ -1051,10 +1119,12 @@ copyButton.addEventListener('click', () => {
 webhookToggle.addEventListener('change', () => {
   localStorage.setItem('xedoc-hands-webhook-enabled', String(webhookToggle.checked))
   webhookState.textContent = webhookToggle.checked ? 'Webhook включен' : 'Локальный лог активен'
+  trackToggle('webhook_toggled', webhookToggle.checked)
 })
 
 webhookUrl.addEventListener('change', () => {
   localStorage.setItem('xedoc-hands-webhook-url', webhookUrl.value)
+  trackMetrika('webhook_endpoint_changed')
 })
 
 window.addEventListener('resize', syncCanvasSize)
@@ -1081,6 +1151,16 @@ if (savedFaceSwapEndpoint) {
 
 webhookToggle.checked = savedWebhookEnabled
 webhookState.textContent = savedWebhookEnabled ? 'Webhook включен' : 'Локальный лог активен'
+
+trackMetrika('app_loaded', {
+  preset: currentPreset,
+  performanceMode,
+  handTracking: handTrackingEnabled,
+  faceTracking: faceTrackingEnabled,
+  multiFace: multiFaceTrackingEnabled,
+  maskMode,
+  maskEnabled,
+})
 
 async function bootModel() {
   if (modelBootPromise) {
@@ -1211,9 +1291,18 @@ async function startCamera() {
     setCameraState('ready', 'Работает')
     syncCanvasSize()
     requestAnimationFrame(predictFrame)
+    trackMetrika('camera_started', {
+      performanceMode,
+      handTracking: handTrackingEnabled,
+      faceTracking: faceTrackingEnabled,
+      multiFace: multiFaceTrackingEnabled,
+    })
   } catch (error) {
     console.error(error)
     setCameraState('error', 'Нет доступа')
+    trackMetrika('camera_error', {
+      reason: error instanceof Error ? error.name : 'unknown',
+    })
   }
 }
 
@@ -1241,6 +1330,7 @@ function stopCamera() {
   faceCount.textContent = '0'
   setReadout(handTrackingEnabled ? 'Нет руки' : 'Руки выкл.', 0, 0, 0, 0, 0)
   setActiveGestures(new Set())
+  trackMetrika('camera_stopped')
 }
 
 function predictFrame(now: number) {
@@ -1277,6 +1367,7 @@ function processResult(result: GestureRecognizerResult | null, faceResult: FaceL
     processFaceResult(faceResult, now, detected)
   } else {
     faceCount.textContent = '0'
+    trackFaceCount(0)
     headSamples = []
     resetMaskMotion()
     setFaceState('idle', faceTrackingEnabled ? 'Нет лица' : 'Откл.')
@@ -1493,6 +1584,7 @@ function processFaceResult(result: FaceLandmarkerResult, now: number, detected: 
   const primaryFaceIndex = primaryFace?.index ?? -1
   const face = primaryFace?.landmarks
   faceCount.textContent = String(faces.length)
+  trackFaceCount(faces.length)
 
   if (!face) {
     setFaceState('idle', 'Нет лица')
@@ -1854,6 +1946,9 @@ function sampleMaskSkinColor() {
 
   if (!isRunning || !video.videoWidth || !video.videoHeight || !landmarks) {
     maskState.textContent = 'Лицо не найдено'
+    trackMetrika('mask_skin_sample_error', {
+      reason: 'face_not_found',
+    })
     return
   }
 
@@ -1896,6 +1991,9 @@ function sampleMaskSkinColor() {
 
   if (!count) {
     maskState.textContent = 'Цвет не взят'
+    trackMetrika('mask_skin_sample_error', {
+      reason: 'sample_empty',
+    })
     return
   }
 
@@ -1906,6 +2004,10 @@ function sampleMaskSkinColor() {
   }
 
   maskState.textContent = 'Цвет взят с лица'
+  trackMetrika('mask_skin_sampled', {
+    color: maskSkinColor,
+    strength: maskColorStrength,
+  })
 }
 
 function compensateMaskLag(landmarks: NormalizedLandmark[], now: number, motion: MaskMotionState) {
@@ -2022,9 +2124,11 @@ async function requestFaceSwapFrame() {
     const imageBlob = await response.blob()
     await setFaceSwapFrame(imageBlob)
     faceSwapState.textContent = 'Bridge работает'
+    trackFaceSwapBridgeStatus('ok')
   } catch (error) {
     console.error(error)
     faceSwapState.textContent = 'Bridge недоступен'
+    trackFaceSwapBridgeStatus('error')
   } finally {
     faceSwapInFlight = false
   }
@@ -2321,6 +2425,14 @@ function fireGesture(
   eventHistory.splice(12)
   renderLastEvent()
   renderLog()
+  trackMetrika('gesture_used', {
+    gesture,
+    gestureTitle: event.gestureTitle,
+    preset: currentPreset,
+    action: event.action,
+    source,
+    confidence: event.confidence,
+  })
 
   if (webhookToggle.checked) {
     void sendWebhook(event)
@@ -2359,6 +2471,10 @@ async function copyLastEvent() {
     await navigator.clipboard.writeText(JSON.stringify(lastEvent, null, 2))
     copyButton.classList.add('is-done')
     setTimeout(() => copyButton.classList.remove('is-done'), 900)
+    trackMetrika('event_json_copied', {
+      gesture: lastEvent.gesture,
+      source: lastEvent.source,
+    })
   } catch (error) {
     console.error(error)
   }
@@ -2380,11 +2496,22 @@ function renderPresetTabs() {
 
   presetTabs.querySelectorAll<HTMLButtonElement>('.preset-tab').forEach((button) => {
     button.addEventListener('click', () => {
-      currentPreset = button.dataset.preset as PresetId
+      const nextPreset = button.dataset.preset as PresetId
+
+      if (nextPreset === currentPreset) {
+        return
+      }
+
+      const previousPreset = currentPreset
+      currentPreset = nextPreset
       localStorage.setItem('xedoc-hands-preset', currentPreset)
       renderPresetTabs()
       renderGestureGrid()
       refreshIcons()
+      trackMetrika('preset_changed', {
+        preset: currentPreset,
+        previousPreset,
+      })
     })
   })
 }
@@ -2472,6 +2599,76 @@ function setMeter(track: HTMLElement, label: HTMLElement, value: number) {
   label.textContent = `${percent}%`
 }
 
+function trackMetrika(goal: string, params: MetrikaParams = {}) {
+  const ym = window.ym
+
+  if (typeof ym !== 'function') {
+    return
+  }
+
+  ym(metrikaCounterId, 'reachGoal', goal, params)
+
+  if (Object.keys(params).length > 0) {
+    ym(metrikaCounterId, 'params', {
+      [goal]: params,
+    })
+  }
+}
+
+function trackToggle(goal: string, enabled: boolean, params: MetrikaParams = {}) {
+  trackMetrika(goal, {
+    enabled,
+    ...params,
+  })
+}
+
+function trackMaskSetting(setting: string, value: string | number) {
+  trackMetrika('mask_setting_changed', {
+    setting,
+    value,
+    maskMode,
+    maskEnabled,
+    maskCount: getLoadedMaskCount(),
+  })
+}
+
+function trackFaceCount(count: number) {
+  maxTrackedFaceCount = Math.max(maxTrackedFaceCount, count)
+
+  if (count === lastTrackedFaceCount) {
+    return
+  }
+
+  lastTrackedFaceCount = count
+  trackMetrika('face_count_changed', {
+    count,
+    maxCount: maxTrackedFaceCount,
+    multiFace: multiFaceTrackingEnabled,
+    faceLimit: getFaceCountLimit(),
+    maskEnabled,
+    maskCount: getLoadedMaskCount(),
+  })
+}
+
+function getLoadedMaskCount() {
+  return Number(Boolean(maskLayer)) + extraMaskSlots.filter((slot) => Boolean(slot.layer)).length
+}
+
+function getMaskSlotAnalyticsName(faceRank: number) {
+  return faceRank === 0 ? 'main' : `face_${faceRank + 1}`
+}
+
+function trackFaceSwapBridgeStatus(status: 'ok' | 'error') {
+  if (faceSwapBridgeStatus === status) {
+    return
+  }
+
+  faceSwapBridgeStatus = status
+  trackMetrika('faceswap_bridge_status', {
+    status,
+  })
+}
+
 function setModelState(state: 'loading' | 'ready' | 'error', text: string) {
   modelDot.dataset.state = state
   modelStatus.textContent = text
@@ -2488,12 +2685,24 @@ function setFaceState(state: 'idle' | 'loading' | 'ready' | 'error', text: strin
 }
 
 function loadMaskFile(file: File, faceRank = 0) {
+  const slot = getMaskSlotAnalyticsName(faceRank)
+
   if (!file.type.startsWith('image/')) {
     setMaskLoadState(faceRank, 'Не изображение')
+    trackMetrika('mask_upload_error', {
+      slot,
+      reason: 'not_image',
+    })
     return
   }
 
   setMaskLoadState(faceRank, 'Загрузка')
+  trackMetrika('mask_upload_started', {
+    slot,
+    fileType: file.type || 'unknown',
+    fileSize: file.size,
+  })
+
   const nextUrl = URL.createObjectURL(file)
   const nextImage = new Image()
 
@@ -2504,12 +2713,17 @@ function loadMaskFile(file: File, faceRank = 0) {
   nextImage.addEventListener('error', () => {
     URL.revokeObjectURL(nextUrl)
     setMaskLoadState(faceRank, 'Не загрузилась')
+    trackMetrika('mask_upload_error', {
+      slot,
+      reason: 'image_load',
+    })
   })
 
   nextImage.src = nextUrl
 }
 
 async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string, sourceBlob: Blob, faceRank = 0) {
+  const analyticsSlot = getMaskSlotAnalyticsName(faceRank)
   setMaskLoadState(faceRank, 'Ищем лицо')
 
   if (!maskFaceLandmarker) {
@@ -2519,6 +2733,10 @@ async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string, sourc
   if (!maskFaceLandmarker) {
     URL.revokeObjectURL(imageUrl)
     setMaskLoadState(faceRank, 'Модель не готова')
+    trackMetrika('mask_upload_error', {
+      slot: analyticsSlot,
+      reason: 'model_not_ready',
+    })
     return
   }
 
@@ -2539,6 +2757,10 @@ async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string, sourc
 
     if (!slot) {
       URL.revokeObjectURL(imageUrl)
+      trackMetrika('mask_upload_error', {
+        slot: analyticsSlot,
+        reason: 'slot_unavailable',
+      })
       return
     }
 
@@ -2546,6 +2768,10 @@ async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string, sourc
       URL.revokeObjectURL(imageUrl)
       updateMaskState()
       setMaskSlotState(faceRank, 'Лицо не найдено')
+      trackMetrika('mask_upload_error', {
+        slot: analyticsSlot,
+        reason: 'face_not_found',
+      })
       return
     }
 
@@ -2554,6 +2780,14 @@ async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string, sourc
     slot.imageUrl = imageUrl
     setMaskSlotState(faceRank, 'Своя маска')
     setMaskEnabled(true)
+    trackMetrika('mask_changed', {
+      slot: analyticsSlot,
+      mode: maskMode,
+      width: image.naturalWidth,
+      height: image.naturalHeight,
+      faceDetected: true,
+      maskCount: getLoadedMaskCount(),
+    })
     return
   }
 
@@ -2568,6 +2802,14 @@ async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string, sourc
   maskSourceBlob = sourceBlob
   maskPreview.src = imageUrl
   setMaskEnabled(true)
+  trackMetrika('mask_changed', {
+    slot: analyticsSlot,
+    mode: maskMode,
+    width: image.naturalWidth,
+    height: image.naturalHeight,
+    faceDetected: Boolean(layer),
+    maskCount: getLoadedMaskCount(),
+  })
 
   if (!landmarks) {
     maskState.textContent = maskMode === 'mesh' ? 'Лицо не найдено' : 'FaceSwap готов'
