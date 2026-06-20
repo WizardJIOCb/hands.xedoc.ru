@@ -466,6 +466,19 @@ svg {
   font-weight: 760;
 }
 
+.option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(23, 32, 29, 0.08);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 760;
+}
+
 .preset-tabs {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

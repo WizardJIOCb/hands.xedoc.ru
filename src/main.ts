@@ -142,6 +142,8 @@ type MaskTriangleRender = {
   depth: number
 }
 
+type VisionFileset = Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>>
+
 const tasksVersion = '0.10.35'
 const wasmPath = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${tasksVersion}/wasm`
 const gestureModelPath =
@@ -571,6 +573,14 @@ app.innerHTML = `
             </label>
           </div>
           <p class="panel-state" id="faceTrackingState">Трекинг и маркеры включены</p>
+          <div class="option-row">
+            <span>Несколько лиц</span>
+            <label class="switch">
+              <input id="multiFaceToggle" type="checkbox" />
+              <span></span>
+            </label>
+          </div>
+          <p class="panel-state mode-state" id="multiFaceState">1 лицо</p>
         </section>
 
         <section class="panel">
@@ -728,6 +738,8 @@ const handTrackingToggle = getElement<HTMLInputElement>('handTrackingToggle')
 const handTrackingState = getElement<HTMLElement>('handTrackingState')
 const faceTrackingToggle = getElement<HTMLInputElement>('faceTrackingToggle')
 const faceTrackingState = getElement<HTMLElement>('faceTrackingState')
+const multiFaceToggle = getElement<HTMLInputElement>('multiFaceToggle')
+const multiFaceState = getElement<HTMLElement>('multiFaceState')
 const performanceTitle = getElement<HTMLElement>('performanceTitle')
 const performanceModeTabs = getElement<HTMLDivElement>('performanceModeTabs')
 const performanceModeState = getElement<HTMLElement>('performanceModeState')
@@ -795,6 +807,7 @@ const faceSwapRequestIntervalMs = 180
 let recognizer: GestureRecognizer | null = null
 let faceLandmarker: FaceLandmarker | null = null
 let maskFaceLandmarker: FaceLandmarker | null = null
+let visionFileset: VisionFileset | null = null
 let modelBootPromise: Promise<void> | null = null
 let stream: MediaStream | null = null
 let isRunning = false
@@ -803,6 +816,7 @@ let currentPreset: PresetId = readPreset()
 let mirrorMode = localStorage.getItem('xedoc-hands-mirror') !== 'off'
 let handTrackingEnabled = localStorage.getItem('xedoc-hands-hand-tracking') !== 'off'
 let faceTrackingEnabled = localStorage.getItem('xedoc-hands-face-tracking') !== 'off'
+let multiFaceTrackingEnabled = localStorage.getItem('xedoc-hands-multi-face') === 'on'
 let performanceMode: PerformanceMode = readPerformanceMode()
 let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
 let maskMode: MaskMode = readMaskMode()
@@ -843,6 +857,7 @@ refreshIcons()
 setMirrorMode(mirrorMode)
 setHandTrackingEnabled(handTrackingEnabled)
 setFaceTrackingEnabled(faceTrackingEnabled)
+setMultiFaceTrackingEnabled(multiFaceTrackingEnabled, false)
 setPerformanceMode(performanceMode)
 setMaskMode(maskMode)
 setMaskStability(maskStability)
@@ -885,6 +900,10 @@ handTrackingToggle.addEventListener('change', () => {
 
 faceTrackingToggle.addEventListener('change', () => {
   setFaceTrackingEnabled(faceTrackingToggle.checked)
+})
+
+multiFaceToggle.addEventListener('change', () => {
+  setMultiFaceTrackingEnabled(multiFaceToggle.checked)
 })
 
 performanceModeTabs.addEventListener('click', (event) => {
@@ -1003,7 +1022,7 @@ async function bootModel() {
 
 async function bootModels() {
   try {
-    const vision = await FilesetResolver.forVisionTasks(wasmPath)
+    const vision = await getVisionFileset()
 
     const [handTask, faceTask, maskFaceTask] = await Promise.all([
       GestureRecognizer.createFromOptions(vision, {
@@ -1017,30 +1036,8 @@ async function bootModels() {
         minHandPresenceConfidence: 0.55,
         minTrackingConfidence: 0.55,
       }),
-      FaceLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: faceModelPath,
-          delegate: 'GPU',
-        },
-        runningMode: 'VIDEO',
-        numFaces: 1,
-        outputFaceBlendshapes: true,
-        outputFacialTransformationMatrixes: true,
-        minFaceDetectionConfidence: 0.55,
-        minFacePresenceConfidence: 0.55,
-        minTrackingConfidence: 0.55,
-      }),
-      FaceLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: faceModelPath,
-          delegate: 'GPU',
-        },
-        runningMode: 'IMAGE',
-        numFaces: 1,
-        minFaceDetectionConfidence: 0.55,
-        minFacePresenceConfidence: 0.55,
-        minTrackingConfidence: 0.55,
-      }),
+      createVideoFaceLandmarker(vision),
+      createMaskFaceLandmarker(vision),
     ])
 
     recognizer = handTask
@@ -1053,6 +1050,68 @@ async function bootModels() {
     console.error(error)
     modelBootPromise = null
     setModelState('error', 'Ошибка')
+    setFaceState('error', 'Ошибка')
+  }
+}
+
+async function getVisionFileset() {
+  if (!visionFileset) {
+    visionFileset = await FilesetResolver.forVisionTasks(wasmPath)
+  }
+
+  return visionFileset
+}
+
+function getFaceCountLimit() {
+  return multiFaceTrackingEnabled ? 4 : 1
+}
+
+async function createVideoFaceLandmarker(vision: VisionFileset) {
+  return FaceLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: faceModelPath,
+      delegate: 'GPU',
+    },
+    runningMode: 'VIDEO',
+    numFaces: getFaceCountLimit(),
+    outputFaceBlendshapes: true,
+    outputFacialTransformationMatrixes: true,
+    minFaceDetectionConfidence: 0.55,
+    minFacePresenceConfidence: 0.55,
+    minTrackingConfidence: 0.55,
+  })
+}
+
+async function createMaskFaceLandmarker(vision: VisionFileset) {
+  return FaceLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: faceModelPath,
+      delegate: 'GPU',
+    },
+    runningMode: 'IMAGE',
+    numFaces: 1,
+    minFaceDetectionConfidence: 0.55,
+    minFacePresenceConfidence: 0.55,
+    minTrackingConfidence: 0.55,
+  })
+}
+
+async function rebuildFaceLandmarker() {
+  try {
+    if (modelBootPromise) {
+      await modelBootPromise
+    }
+
+    const vision = await getVisionFileset()
+    setFaceState('loading', 'Перекл.')
+    const nextFaceLandmarker = await createVideoFaceLandmarker(vision)
+    faceLandmarker?.close()
+    faceLandmarker = nextFaceLandmarker
+    headSamples = []
+    resetMaskMotion()
+    setFaceState('idle', faceTrackingEnabled ? (isRunning ? 'Нет лица' : 'Ожидание') : 'Откл.')
+  } catch (error) {
+    console.error(error)
     setFaceState('error', 'Ошибка')
   }
 }
@@ -1354,8 +1413,10 @@ function updateZoom(hands: NormalizedLandmark[][], now: number, detected: Set<Ge
 }
 
 function processFaceResult(result: FaceLandmarkerResult, now: number, detected: Set<GestureKey>) {
-  const face = result.faceLandmarks[0]
-  faceCount.textContent = String(result.faceLandmarks.length)
+  const faces = result.faceLandmarks
+  const primaryFaceIndex = getPrimaryFaceIndex(faces)
+  const face = primaryFaceIndex >= 0 ? faces[primaryFaceIndex] : undefined
+  faceCount.textContent = String(faces.length)
 
   if (!face) {
     setFaceState('idle', 'Нет лица')
@@ -1365,21 +1426,28 @@ function processFaceResult(result: FaceLandmarkerResult, now: number, detected: 
   }
 
   setFaceState('ready', 'В кадре')
+  const secondaryFaces = multiFaceTrackingEnabled ? faces.filter((_, index) => index !== primaryFaceIndex) : []
 
   if (maskEnabled && maskMode === 'mesh' && maskLayer) {
     drawFaceMask(compensateMaskLag(face, now))
+    secondaryFaces.forEach(drawFace)
   } else if (maskEnabled && maskMode === 'faceswap') {
     previousMaskFaceLandmarks = cloneLandmarks(face)
     displayedMaskFaceLandmarks = cloneLandmarks(face)
     previousMaskFaceAt = now
+    secondaryFaces.forEach(drawFace)
   } else {
     previousMaskFaceLandmarks = cloneLandmarks(face)
     displayedMaskFaceLandmarks = cloneLandmarks(face)
     previousMaskFaceAt = now
-    drawFace(face)
+    if (multiFaceTrackingEnabled) {
+      faces.forEach(drawFace)
+    } else {
+      drawFace(face)
+    }
   }
 
-  const categories = result.faceBlendshapes[0]?.categories ?? []
+  const categories = result.faceBlendshapes[primaryFaceIndex]?.categories ?? []
   const smile = (faceScore(categories, 'mouthSmileLeft') + faceScore(categories, 'mouthSmileRight')) / 2
   const jawOpen = faceScore(categories, 'jawOpen')
   const blinkLeft = faceScore(categories, 'eyeBlinkLeft')
@@ -1459,6 +1527,42 @@ function processFaceResult(result: FaceLandmarkerResult, now: number, detected: 
     })
     headSamples = []
   }
+}
+
+function getPrimaryFaceIndex(faces: NormalizedLandmark[][]) {
+  let bestIndex = -1
+  let bestArea = -1
+
+  faces.forEach((face, index) => {
+    const area = getFaceLandmarkArea(face)
+
+    if (area > bestArea) {
+      bestArea = area
+      bestIndex = index
+    }
+  })
+
+  return bestIndex
+}
+
+function getFaceLandmarkArea(face: NormalizedLandmark[]) {
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+
+  for (const landmark of face) {
+    minX = Math.min(minX, landmark.x)
+    minY = Math.min(minY, landmark.y)
+    maxX = Math.max(maxX, landmark.x)
+    maxY = Math.max(maxY, landmark.y)
+  }
+
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return 0
+  }
+
+  return Math.max(maxX - minX, 0) * Math.max(maxY - minY, 0)
 }
 
 function drawFace(landmarks: NormalizedLandmark[]) {
@@ -2403,6 +2507,17 @@ function setFaceTrackingEnabled(next: boolean) {
 
   setFaceState('idle', isRunning ? 'Нет лица' : 'Ожидание')
   updateMaskState()
+}
+
+function setMultiFaceTrackingEnabled(next: boolean, rebuild = true) {
+  multiFaceTrackingEnabled = next
+  localStorage.setItem('xedoc-hands-multi-face', next ? 'on' : 'off')
+  multiFaceToggle.checked = next
+  multiFaceState.textContent = next ? 'До 4 лиц' : '1 лицо'
+
+  if (rebuild && faceLandmarker) {
+    void rebuildFaceLandmarker()
+  }
 }
 
 function setPerformanceMode(next: PerformanceMode) {
