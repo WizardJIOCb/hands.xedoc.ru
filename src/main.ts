@@ -3000,7 +3000,7 @@ function setHudVisible(next: boolean) {
   hudVisible = next
   localStorage.setItem('xedoc-hands-hud', next ? 'on' : 'off')
   hudToggle.checked = next
-  hud.hidden = !next
+  hud.classList.toggle('is-hidden', !next)
   hudState.textContent = next ? 'HUD включен' : 'HUD скрыт'
 }
 

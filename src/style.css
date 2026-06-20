@@ -316,6 +316,10 @@ svg {
   width: min(510px, calc(100% - 24px));
 }
 
+.hud.is-hidden {
+  display: none !important;
+}
+
 .hud > div {
   min-width: 0;
   padding: 9px 10px;
