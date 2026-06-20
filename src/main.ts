@@ -136,6 +136,17 @@ type FaceMaskLayer = {
   height: number
 }
 
+type FaceMaskSlot = {
+  layer: FaceMaskLayer | null
+  imageUrl: string | null
+}
+
+type MaskMotionState = {
+  previousLandmarks: NormalizedLandmark[] | null
+  displayedLandmarks: NormalizedLandmark[] | null
+  previousAt: number
+}
+
 type MaskTriangleRender = {
   source: Point2D[]
   target: Point2D[]
@@ -228,6 +239,8 @@ const gestureDefinitions: GestureDefinition[] = [
 
 const gestureKeys = new Set(gestureDefinitions.map((gesture) => gesture.key))
 const faceTriangles = buildFaceTriangles(FaceLandmarker.FACE_LANDMARKS_TESSELATION)
+const faceMaskSlotCount = 4
+const extraMaskSlotNumbers = [2, 3, 4] as const
 const faceOvalIndices = [
   10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176,
   149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109,
@@ -684,6 +697,38 @@ app.innerHTML = `
               </div>
             </div>
           </div>
+          <div class="mask-slots" id="maskSlotsBlock">
+            <div class="mask-stability-head">
+              <span class="input-label">Маски лиц</span>
+              <strong>по близости</strong>
+            </div>
+            <div class="mask-slot-list">
+              <div class="mask-slot">
+                <label class="file-button" for="maskSlotFile2">
+                  <i data-lucide="scan-eye"></i>
+                  <span>Лицо 2</span>
+                </label>
+                <input id="maskSlotFile2" class="file-input" type="file" accept="image/*" />
+                <span id="maskSlotState2">Основная</span>
+              </div>
+              <div class="mask-slot">
+                <label class="file-button" for="maskSlotFile3">
+                  <i data-lucide="scan-eye"></i>
+                  <span>Лицо 3</span>
+                </label>
+                <input id="maskSlotFile3" class="file-input" type="file" accept="image/*" />
+                <span id="maskSlotState3">Основная</span>
+              </div>
+              <div class="mask-slot">
+                <label class="file-button" for="maskSlotFile4">
+                  <i data-lucide="scan-eye"></i>
+                  <span>Лицо 4</span>
+                </label>
+                <input id="maskSlotFile4" class="file-input" type="file" accept="image/*" />
+                <span id="maskSlotState4">Основная</span>
+              </div>
+            </div>
+          </div>
           <div class="faceswap-options" id="faceSwapOptions">
             <label class="input-label" for="faceSwapEndpoint">FaceSwap bridge</label>
             <input id="faceSwapEndpoint" class="text-input" type="url" value="http://127.0.0.1:8790/swap" />
@@ -769,6 +814,13 @@ const maskToggle = getElement<HTMLInputElement>('maskToggle')
 const maskFile = getElement<HTMLInputElement>('maskFile')
 const maskState = getElement<HTMLElement>('maskState')
 const maskPreview = getElement<HTMLImageElement>('maskPreview')
+const maskSlotsBlock = getElement<HTMLDivElement>('maskSlotsBlock')
+const maskSlotFiles = extraMaskSlotNumbers.map((slotNumber) =>
+  getElement<HTMLInputElement>(`maskSlotFile${slotNumber}`),
+)
+const maskSlotStates = extraMaskSlotNumbers.map((slotNumber) =>
+  getElement<HTMLElement>(`maskSlotState${slotNumber}`),
+)
 const maskStabilitySlider = getElement<HTMLInputElement>('maskStability')
 const maskStabilityValue = getElement<HTMLElement>('maskStabilityValue')
 const maskStabilityBlock = getElement<HTMLDivElement>('maskStabilityBlock')
@@ -840,9 +892,11 @@ let maskSaturation = readMaskSaturation()
 let maskLayer: FaceMaskLayer | null = null
 let maskImageUrl: string | null = null
 let maskSourceBlob: Blob | null = null
-let previousMaskFaceLandmarks: NormalizedLandmark[] | null = null
-let displayedMaskFaceLandmarks: NormalizedLandmark[] | null = null
-let previousMaskFaceAt = 0
+const extraMaskSlots: FaceMaskSlot[] = Array.from({ length: faceMaskSlotCount - 1 }, () => ({
+  layer: null,
+  imageUrl: null,
+}))
+let maskMotionStates = createMaskMotionStates()
 let faceSwapFrameImage: HTMLImageElement | null = null
 let faceSwapFrameUrl: string | null = null
 let faceSwapInFlight = false
@@ -956,6 +1010,18 @@ maskFile.addEventListener('change', () => {
   }
 })
 
+maskSlotFiles.forEach((input, index) => {
+  input.addEventListener('change', () => {
+    const file = input.files?.[0]
+
+    if (file) {
+      loadMaskFile(file, index + 1)
+    }
+
+    input.value = ''
+  })
+})
+
 maskStabilitySlider.addEventListener('input', () => {
   setMaskStability(Number(maskStabilitySlider.value))
 })
@@ -1008,6 +1074,7 @@ window.addEventListener('beforeunload', () => {
     URL.revokeObjectURL(maskImageUrl)
   }
 
+  extraMaskSlots.forEach(revokeMaskSlot)
   resetFaceSwapFrame()
 })
 
@@ -1432,8 +1499,10 @@ function updateZoom(hands: NormalizedLandmark[][], now: number, detected: Set<Ge
 
 function processFaceResult(result: FaceLandmarkerResult, now: number, detected: Set<GestureKey>) {
   const faces = result.faceLandmarks
-  const primaryFaceIndex = getPrimaryFaceIndex(faces)
-  const face = primaryFaceIndex >= 0 ? faces[primaryFaceIndex] : undefined
+  const rankedFaces = getRankedFaces(faces)
+  const primaryFace = rankedFaces[0]
+  const primaryFaceIndex = primaryFace?.index ?? -1
+  const face = primaryFace?.landmarks
   faceCount.textContent = String(faces.length)
 
   if (!face) {
@@ -1444,20 +1513,14 @@ function processFaceResult(result: FaceLandmarkerResult, now: number, detected: 
   }
 
   setFaceState('ready', 'В кадре')
-  const secondaryFaces = multiFaceTrackingEnabled ? faces.filter((_, index) => index !== primaryFaceIndex) : []
 
-  if (maskEnabled && maskMode === 'mesh' && maskLayer) {
-    drawFaceMask(compensateMaskLag(face, now))
-    secondaryFaces.forEach(drawFace)
+  if (maskEnabled && maskMode === 'mesh' && hasMeshMaskLayer()) {
+    drawMasksForFaces(rankedFaces, now)
   } else if (maskEnabled && maskMode === 'faceswap') {
-    previousMaskFaceLandmarks = cloneLandmarks(face)
-    displayedMaskFaceLandmarks = cloneLandmarks(face)
-    previousMaskFaceAt = now
-    secondaryFaces.forEach(drawFace)
+    rememberMaskFace(face, now)
+    rankedFaces.filter((ranked) => ranked.index !== primaryFaceIndex).forEach((ranked) => drawFace(ranked.landmarks))
   } else {
-    previousMaskFaceLandmarks = cloneLandmarks(face)
-    displayedMaskFaceLandmarks = cloneLandmarks(face)
-    previousMaskFaceAt = now
+    rememberMaskFace(face, now)
     if (multiFaceTrackingEnabled) {
       faces.forEach(drawFace)
     } else {
@@ -1547,20 +1610,35 @@ function processFaceResult(result: FaceLandmarkerResult, now: number, detected: 
   }
 }
 
-function getPrimaryFaceIndex(faces: NormalizedLandmark[][]) {
-  let bestIndex = -1
-  let bestArea = -1
+function drawMasksForFaces(rankedFaces: { landmarks: NormalizedLandmark[]; index: number; area: number }[], now: number) {
+  const maskTargets = rankedFaces
+    .slice(0, faceMaskSlotCount)
+    .map((rankedFace, rank) => ({
+      landmarks: rankedFace.landmarks,
+      layer: getMaskLayerForFaceRank(rank),
+      motion: maskMotionStates[rank],
+    }))
+    .filter((target): target is { landmarks: NormalizedLandmark[]; layer: FaceMaskLayer; motion: MaskMotionState } =>
+      Boolean(target.layer && target.motion),
+    )
 
-  faces.forEach((face, index) => {
-    const area = getFaceLandmarkArea(face)
+  for (const target of maskTargets.reverse()) {
+    drawFaceMask(compensateMaskLag(target.landmarks, now, target.motion), target.layer)
+  }
+}
 
-    if (area > bestArea) {
-      bestArea = area
-      bestIndex = index
-    }
-  })
+function getRankedFaces(faces: NormalizedLandmark[][]) {
+  return faces
+    .map((landmarks, index) => ({
+      landmarks,
+      index,
+      area: getFaceLandmarkArea(landmarks),
+    }))
+    .sort((left, right) => right.area - left.area)
+}
 
-  return bestIndex
+function getMaskLayerForFaceRank(rank: number) {
+  return extraMaskSlots[rank - 1]?.layer ?? maskLayer
 }
 
 function getFaceLandmarkArea(face: NormalizedLandmark[]) {
@@ -1616,9 +1694,7 @@ function drawFace(landmarks: NormalizedLandmark[]) {
   })
 }
 
-function drawFaceMask(landmarks: NormalizedLandmark[]) {
-  const layer = maskLayer
-
+function drawFaceMask(landmarks: NormalizedLandmark[], layer: FaceMaskLayer | null = maskLayer) {
   if (!layer) {
     return
   }
@@ -1784,7 +1860,8 @@ function getAdaptiveMaskEdgeFeather(landmarks: NormalizedLandmark[]) {
 }
 
 function sampleMaskSkinColor() {
-  const landmarks = displayedMaskFaceLandmarks ?? previousMaskFaceLandmarks
+  const primaryMaskMotion = maskMotionStates[0]
+  const landmarks = primaryMaskMotion.displayedLandmarks ?? primaryMaskMotion.previousLandmarks
 
   if (!isRunning || !video.videoWidth || !video.videoHeight || !landmarks) {
     maskState.textContent = 'Лицо не найдено'
@@ -1842,16 +1919,16 @@ function sampleMaskSkinColor() {
   maskState.textContent = 'Цвет взят с лица'
 }
 
-function compensateMaskLag(landmarks: NormalizedLandmark[], now: number) {
-  const previousRaw = previousMaskFaceLandmarks
-  const previousDisplayed = displayedMaskFaceLandmarks
-  const previousAt = previousMaskFaceAt
+function compensateMaskLag(landmarks: NormalizedLandmark[], now: number, motion: MaskMotionState) {
+  const previousRaw = motion.previousLandmarks
+  const previousDisplayed = motion.displayedLandmarks
+  const previousAt = motion.previousAt
   const current = cloneLandmarks(landmarks)
-  previousMaskFaceLandmarks = current
-  previousMaskFaceAt = now
+  motion.previousLandmarks = current
+  motion.previousAt = now
 
   if (!previousRaw || !previousDisplayed || previousRaw.length !== landmarks.length || !previousAt) {
-    displayedMaskFaceLandmarks = current
+    motion.displayedLandmarks = current
     return current
   }
 
@@ -1898,7 +1975,7 @@ function compensateMaskLag(landmarks: NormalizedLandmark[], now: number) {
     }
   })
 
-  displayedMaskFaceLandmarks = cloneLandmarks(stabilized)
+  motion.displayedLandmarks = cloneLandmarks(stabilized)
   return stabilized
 }
 
@@ -2208,6 +2285,11 @@ function getHeadPose(landmarks: NormalizedLandmark[]) {
 }
 
 function updateCursor(landmarks: NormalizedLandmark[]) {
+  if (!handMarkersEnabled) {
+    cursorDot.classList.remove('is-visible')
+    return
+  }
+
   const pointer = landmarks[8]
   const x = mirrorMode ? 1 - pointer.x : pointer.x
   const y = pointer.y
@@ -2416,30 +2498,30 @@ function setFaceState(state: 'idle' | 'loading' | 'ready' | 'error', text: strin
   faceStatus.textContent = text
 }
 
-function loadMaskFile(file: File) {
+function loadMaskFile(file: File, faceRank = 0) {
   if (!file.type.startsWith('image/')) {
-    maskState.textContent = 'Не изображение'
+    setMaskLoadState(faceRank, 'Не изображение')
     return
   }
 
-  maskState.textContent = 'Загрузка'
+  setMaskLoadState(faceRank, 'Загрузка')
   const nextUrl = URL.createObjectURL(file)
   const nextImage = new Image()
 
   nextImage.addEventListener('load', () => {
-    void prepareMaskLayer(nextImage, nextUrl, file)
+    void prepareMaskLayer(nextImage, nextUrl, file, faceRank)
   })
 
   nextImage.addEventListener('error', () => {
     URL.revokeObjectURL(nextUrl)
-    maskState.textContent = 'Не загрузилась'
+    setMaskLoadState(faceRank, 'Не загрузилась')
   })
 
   nextImage.src = nextUrl
 }
 
-async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string, sourceBlob: Blob) {
-  maskState.textContent = 'Ищем лицо'
+async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string, sourceBlob: Blob, faceRank = 0) {
+  setMaskLoadState(faceRank, 'Ищем лицо')
 
   if (!maskFaceLandmarker) {
     await bootModel()
@@ -2447,20 +2529,13 @@ async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string, sourc
 
   if (!maskFaceLandmarker) {
     URL.revokeObjectURL(imageUrl)
-    maskState.textContent = 'Модель не готова'
+    setMaskLoadState(faceRank, 'Модель не готова')
     return
   }
 
   const result = maskFaceLandmarker.detect(image)
   const landmarks = result.faceLandmarks[0]
-
-  if (maskImageUrl) {
-    URL.revokeObjectURL(maskImageUrl)
-  }
-
-  resetFaceSwapFrame()
-
-  maskLayer = landmarks
+  const layer = landmarks
     ? {
         image,
         landmarks,
@@ -2469,6 +2544,37 @@ async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string, sourc
         height: image.naturalHeight,
       }
     : null
+
+  if (faceRank > 0) {
+    const slot = extraMaskSlots[faceRank - 1]
+
+    if (!slot) {
+      URL.revokeObjectURL(imageUrl)
+      return
+    }
+
+    if (!layer) {
+      URL.revokeObjectURL(imageUrl)
+      updateMaskState()
+      setMaskSlotState(faceRank, 'Лицо не найдено')
+      return
+    }
+
+    revokeMaskSlot(slot)
+    slot.layer = layer
+    slot.imageUrl = imageUrl
+    setMaskSlotState(faceRank, 'Своя маска')
+    setMaskEnabled(true)
+    return
+  }
+
+  if (maskImageUrl) {
+    URL.revokeObjectURL(maskImageUrl)
+  }
+
+  resetFaceSwapFrame()
+
+  maskLayer = layer
   maskImageUrl = imageUrl
   maskSourceBlob = sourceBlob
   maskPreview.src = imageUrl
@@ -2477,6 +2583,38 @@ async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string, sourc
   if (!landmarks) {
     maskState.textContent = maskMode === 'mesh' ? 'Лицо не найдено' : 'FaceSwap готов'
   }
+}
+
+function setMaskLoadState(faceRank: number, text: string) {
+  if (faceRank > 0) {
+    setMaskSlotState(faceRank, text)
+    return
+  }
+
+  maskState.textContent = text
+}
+
+function setMaskSlotState(faceRank: number, text: string) {
+  const state = maskSlotStates[faceRank - 1]
+
+  if (state) {
+    state.textContent = text
+  }
+}
+
+function updateMaskSlotStates() {
+  extraMaskSlots.forEach((slot, index) => {
+    setMaskSlotState(index + 1, slot.layer ? 'Своя маска' : 'Основная')
+  })
+}
+
+function revokeMaskSlot(slot: FaceMaskSlot) {
+  if (slot.imageUrl) {
+    URL.revokeObjectURL(slot.imageUrl)
+  }
+
+  slot.layer = null
+  slot.imageUrl = null
 }
 
 function setMaskEnabled(next: boolean) {
@@ -2513,6 +2651,9 @@ function setHandMarkersEnabled(next: boolean) {
   handMarkersEnabled = next
   localStorage.setItem('xedoc-hands-hand-markers', next ? 'on' : 'off')
   handMarkersToggle.checked = next
+  if (!next) {
+    cursorDot.classList.remove('is-visible')
+  }
   updateHandMarkersState()
 }
 
@@ -2616,19 +2757,21 @@ function setMaskSaturation(next: number) {
 }
 
 function updateMaskState() {
-  const hasImage = Boolean(maskImageUrl && maskSourceBlob)
-  const meshReady = Boolean(maskLayer)
-  const canEnable = hasImage && (maskMode === 'faceswap' || meshReady)
+  const hasMainImage = Boolean(maskImageUrl && maskSourceBlob)
+  const meshReady = hasMeshMaskLayer()
+  const canEnable = maskMode === 'faceswap' ? hasMainImage : meshReady
 
   maskToggle.disabled = !canEnable
   maskToggle.checked = canEnable && maskEnabled
-  maskPreview.classList.toggle('is-visible', hasImage)
+  maskPreview.classList.toggle('is-visible', hasMainImage)
   maskStabilityBlock.classList.toggle('is-hidden', maskMode !== 'mesh')
   maskEdgeFeatherBlock.classList.toggle('is-hidden', maskMode !== 'mesh')
   maskColorBlock.classList.toggle('is-hidden', maskMode !== 'mesh')
+  maskSlotsBlock.classList.toggle('is-hidden', maskMode !== 'mesh')
   faceSwapOptions.classList.toggle('is-hidden', maskMode !== 'faceswap')
+  updateMaskSlotStates()
 
-  if (!hasImage) {
+  if (!hasMainImage && !meshReady) {
     maskState.textContent = 'Не выбрана'
     return
   }
@@ -2648,13 +2791,36 @@ function updateMaskState() {
     return
   }
 
-  maskState.textContent = maskMode === 'faceswap' ? 'FaceSwap включен' : 'Mesh включена'
+  if (maskMode === 'faceswap') {
+    maskState.textContent = 'FaceSwap включен'
+    return
+  }
+
+  const maskCount = Number(Boolean(maskLayer)) + extraMaskSlots.filter((slot) => Boolean(slot.layer)).length
+  maskState.textContent = maskCount > 1 ? `Mesh: ${maskCount} маски` : 'Mesh включена'
+}
+
+function hasMeshMaskLayer() {
+  return Boolean(maskLayer || extraMaskSlots.some((slot) => slot.layer))
+}
+
+function rememberMaskFace(landmarks: NormalizedLandmark[], now: number, motion = maskMotionStates[0]) {
+  const current = cloneLandmarks(landmarks)
+  motion.previousLandmarks = current
+  motion.displayedLandmarks = cloneLandmarks(landmarks)
+  motion.previousAt = now
 }
 
 function resetMaskMotion() {
-  previousMaskFaceLandmarks = null
-  displayedMaskFaceLandmarks = null
-  previousMaskFaceAt = 0
+  maskMotionStates = createMaskMotionStates()
+}
+
+function createMaskMotionStates() {
+  return Array.from({ length: faceMaskSlotCount }, (): MaskMotionState => ({
+    previousLandmarks: null,
+    displayedLandmarks: null,
+    previousAt: 0,
+  }))
 }
 
 function resetHandTracking() {

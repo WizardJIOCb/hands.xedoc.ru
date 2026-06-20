@@ -649,12 +649,44 @@ svg {
 
 .mask-stability.is-hidden,
 .mask-color.is-hidden,
+.mask-slots.is-hidden,
 .faceswap-options.is-hidden {
   display: none;
 }
 
 .mask-color {
   margin-top: 12px;
+}
+
+.mask-slots {
+  margin-top: 12px;
+}
+
+.mask-slot-list {
+  display: grid;
+  gap: 8px;
+}
+
+.mask-slot {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.mask-slot .file-button {
+  min-height: 34px;
+  padding-inline: 10px;
+}
+
+.mask-slot > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mask-color-row {
