@@ -127,6 +127,13 @@ type Point2D = {
   y: number
 }
 
+type Rect2D = {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+}
+
 type FaceMaskLayer = {
   image: HTMLImageElement
   landmarks: NormalizedLandmark[]
@@ -144,6 +151,7 @@ type MaskMotionState = {
   previousLandmarks: NormalizedLandmark[] | null
   displayedLandmarks: NormalizedLandmark[] | null
   previousAt: number
+  occludedUntil: number
 }
 
 type MaskTriangleRender = {
@@ -626,6 +634,23 @@ app.innerHTML = `
               <span>Мягче</span>
             </div>
           </div>
+          <div class="mask-stability" id="maskHandOcclusionBlock">
+            <div class="mask-stability-head">
+              <div class="setting-title">
+                <label class="setting-toggle" title="Показывать руку поверх маски">
+                  <input id="maskHandOcclusionEnabled" type="checkbox" checked />
+                  <span></span>
+                </label>
+                <label class="input-label" for="maskHandOcclusionPadding">Рука поверх</label>
+              </div>
+              <strong id="maskHandOcclusionPaddingValue">24px</strong>
+            </div>
+            <input id="maskHandOcclusionPadding" class="range-input" type="range" min="0" max="80" step="1" value="24" />
+            <div class="range-captions">
+              <span>Точнее</span>
+              <span>Шире</span>
+            </div>
+          </div>
           <div class="mask-color" id="maskColorBlock">
             <div class="mask-stability-head">
               <div class="setting-title">
@@ -925,6 +950,10 @@ const maskEdgeFeatherSlider = getElement<HTMLInputElement>('maskEdgeFeather')
 const maskEdgeFeatherValue = getElement<HTMLElement>('maskEdgeFeatherValue')
 const maskEdgeFeatherEnabledToggle = getElement<HTMLInputElement>('maskEdgeFeatherEnabled')
 const maskEdgeFeatherBlock = getElement<HTMLDivElement>('maskEdgeFeatherBlock')
+const maskHandOcclusionBlock = getElement<HTMLDivElement>('maskHandOcclusionBlock')
+const maskHandOcclusionEnabledToggle = getElement<HTMLInputElement>('maskHandOcclusionEnabled')
+const maskHandOcclusionPaddingSlider = getElement<HTMLInputElement>('maskHandOcclusionPadding')
+const maskHandOcclusionPaddingValue = getElement<HTMLElement>('maskHandOcclusionPaddingValue')
 const maskColorBlock = getElement<HTMLDivElement>('maskColorBlock')
 const maskSkinColorInput = getElement<HTMLInputElement>('maskSkinColor')
 const maskSampleSkinButton = getElement<HTMLButtonElement>('maskSampleSkinButton')
@@ -997,6 +1026,8 @@ let maskMode: MaskMode = readMaskMode()
 let maskStability = readMaskStability()
 let maskEdgeFeather = readMaskEdgeFeather()
 let maskEdgeFeatherEnabled = readMaskSettingEnabled('edge-feather')
+let maskHandOcclusionEnabled = readMaskSettingEnabled('hand-occlusion')
+let maskHandOcclusionPadding = readMaskHandOcclusionPadding()
 let maskSkinColor = readMaskSkinColor()
 let maskColorStrength = readMaskColorStrength()
 let maskColorStrengthEnabled = readMaskSettingEnabled('color-strength')
@@ -1032,6 +1063,7 @@ let fpsStartedAt = performance.now()
 let pinchDown = false
 let pinchStartedAt: number | null = null
 let pinchHoldDown = false
+let currentHandLandmarks: NormalizedLandmark[][] = []
 let motionSamples: MotionSample[] = []
 let zoomSamples: MotionSample[] = []
 let headSamples: HeadSample[] = []
@@ -1054,6 +1086,8 @@ setMaskMode(maskMode)
 setMaskStability(maskStability)
 setMaskEdgeFeather(maskEdgeFeather)
 setMaskEdgeFeatherEnabled(maskEdgeFeatherEnabled)
+setMaskHandOcclusionEnabled(maskHandOcclusionEnabled)
+setMaskHandOcclusionPadding(maskHandOcclusionPadding)
 setMaskSkinColor(maskSkinColor)
 setMaskColorStrength(maskColorStrength)
 setMaskColorStrengthEnabled(maskColorStrengthEnabled)
@@ -1209,6 +1243,19 @@ maskEdgeFeatherSlider.addEventListener('change', () => {
 maskEdgeFeatherEnabledToggle.addEventListener('change', () => {
   setMaskEdgeFeatherEnabled(maskEdgeFeatherEnabledToggle.checked)
   trackMaskSettingToggle('edgeFeather', maskEdgeFeatherEnabled)
+})
+
+maskHandOcclusionEnabledToggle.addEventListener('change', () => {
+  setMaskHandOcclusionEnabled(maskHandOcclusionEnabledToggle.checked)
+  trackMaskSettingToggle('handOcclusion', maskHandOcclusionEnabled)
+})
+
+maskHandOcclusionPaddingSlider.addEventListener('input', () => {
+  setMaskHandOcclusionPadding(Number(maskHandOcclusionPaddingSlider.value))
+})
+
+maskHandOcclusionPaddingSlider.addEventListener('change', () => {
+  trackMaskSetting('handOcclusionPadding', maskHandOcclusionPadding)
 })
 
 maskSkinColorInput.addEventListener('input', () => {
@@ -1560,6 +1607,7 @@ function stopCamera() {
   faceCount.textContent = '0'
   setReadout(handTrackingEnabled ? 'Нет руки' : 'Руки выкл.', 0, 0, 0, 0, 0)
   setActiveGestures(new Set())
+  currentHandLandmarks = []
   trackMetrika('camera_stopped')
 }
 
@@ -1588,6 +1636,7 @@ function processResult(result: GestureRecognizerResult | null, faceResult: FaceL
 
   const detected = new Set<GestureKey>()
   const handLandmarks = handTrackingEnabled ? (result?.landmarks ?? []) : []
+  currentHandLandmarks = handLandmarks
   const topGesture = handTrackingEnabled ? result?.gestures[0]?.[0] : undefined
   const topScore = topGesture?.score ?? 0
   const modelGesture = topGesture?.categoryName ?? 'None'
@@ -2032,6 +2081,7 @@ function drawFaceMask(landmarks: NormalizedLandmark[], layer: FaceMaskLayer | nu
   applyMaskColorCorrection()
   applyRenderedMaskFeather(landmarks)
   applySoftFaceMask(landmarks)
+  applyHandOcclusionToMask(landmarks)
 
   context.save()
   context.globalAlpha = 0.96
@@ -2194,6 +2244,98 @@ function applyTargetFaceEdgeFeather(landmarks: NormalizedLandmark[], blur: numbe
   maskRenderContext.restore()
 }
 
+function applyHandOcclusionToMask(faceLandmarks: NormalizedLandmark[]) {
+  if (!maskHandOcclusionEnabled || !handTrackingEnabled || currentHandLandmarks.length === 0) {
+    return
+  }
+
+  const faceBox = expandRect(getLandmarkRect(faceLandmarks), maskHandOcclusionPadding)
+  maskRenderContext.save()
+  maskRenderContext.globalCompositeOperation = 'destination-out'
+  maskRenderContext.fillStyle = '#000'
+  maskRenderContext.strokeStyle = '#000'
+  maskRenderContext.lineCap = 'round'
+  maskRenderContext.lineJoin = 'round'
+
+  for (const hand of currentHandLandmarks) {
+    const handPoints = hand.map(landmarkToCanvasPoint)
+    const handBox = expandRect(getPointRect(handPoints), maskHandOcclusionPadding)
+
+    if (!rectsIntersect(faceBox, handBox)) {
+      continue
+    }
+
+    eraseHandFromMask(handPoints, maskHandOcclusionPadding)
+  }
+
+  maskRenderContext.restore()
+}
+
+function isHandOverFace(faceLandmarks: NormalizedLandmark[]) {
+  if (!handTrackingEnabled || currentHandLandmarks.length === 0) {
+    return false
+  }
+
+  const faceBox = expandRect(getLandmarkRect(faceLandmarks), maskHandOcclusionPadding * 0.5)
+
+  return currentHandLandmarks.some((hand) =>
+    rectsIntersect(faceBox, expandRect(getLandmarkRect(hand), maskHandOcclusionPadding * 0.5)),
+  )
+}
+
+function eraseHandFromMask(points: Point2D[], padding: number) {
+  const box = getPointRect(points)
+  const handScale = Math.max(box.maxX - box.minX, box.maxY - box.minY)
+  const jointRadius = clamp(handScale * 0.055 + padding * 0.58, 10, 58)
+  const palmRadius = clamp(jointRadius * 1.28, 14, 72)
+  const strokeWidth = clamp(jointRadius * 1.55, 18, 92)
+  const palmIndices = [0, 1, 5, 9, 13, 17]
+  const palmHull = convexHull(palmIndices.map((index) => points[index]).filter(Boolean))
+
+  if (palmHull.length >= 3) {
+    drawPolygon(maskRenderContext, expandPolygon(palmHull, palmRadius * 0.6))
+    maskRenderContext.fill()
+  }
+
+  maskRenderContext.lineWidth = strokeWidth
+
+  for (const connection of GestureRecognizer.HAND_CONNECTIONS) {
+    const start = points[connection.start]
+    const end = points[connection.end]
+
+    if (!start || !end) {
+      continue
+    }
+
+    maskRenderContext.beginPath()
+    maskRenderContext.moveTo(start.x, start.y)
+    maskRenderContext.lineTo(end.x, end.y)
+    maskRenderContext.stroke()
+  }
+
+  for (const [index, point] of points.entries()) {
+    const isPalm = palmIndices.includes(index)
+    maskRenderContext.beginPath()
+    maskRenderContext.arc(point.x, point.y, isPalm ? palmRadius : jointRadius, 0, Math.PI * 2)
+    maskRenderContext.fill()
+  }
+}
+
+function drawPolygon(targetContext: CanvasRenderingContext2D, points: Point2D[]) {
+  if (points.length === 0) {
+    return
+  }
+
+  targetContext.beginPath()
+  targetContext.moveTo(points[0].x, points[0].y)
+
+  for (const point of points.slice(1)) {
+    targetContext.lineTo(point.x, point.y)
+  }
+
+  targetContext.closePath()
+}
+
 function getAdaptiveMaskEdgeFeather(landmarks: NormalizedLandmark[]) {
   const pose = getHeadPose(landmarks)
   const turn = clamp(((pose ? Math.abs(pose.yaw) : 0) - 0.16) / 0.32, 0, 1)
@@ -2282,6 +2424,15 @@ function compensateMaskLag(landmarks: NormalizedLandmark[], now: number, motion:
   if (!previousRaw || !previousDisplayed || previousRaw.length !== landmarks.length || !previousAt) {
     motion.displayedLandmarks = current
     return current
+  }
+
+  if (maskHandOcclusionEnabled && isHandOverFace(landmarks)) {
+    motion.occludedUntil = now + 160
+  }
+
+  if (motion.occludedUntil > now) {
+    motion.displayedLandmarks = cloneLandmarks(previousDisplayed)
+    return cloneLandmarks(previousDisplayed)
   }
 
   const dt = clamp(now - previousAt, 8, 80)
@@ -3246,6 +3397,20 @@ function setMaskEdgeFeatherEnabled(next: boolean) {
   maskEdgeFeatherSlider.disabled = !next
 }
 
+function setMaskHandOcclusionEnabled(next: boolean) {
+  maskHandOcclusionEnabled = next
+  setMaskSettingEnabled('hand-occlusion', next)
+  maskHandOcclusionEnabledToggle.checked = next
+  maskHandOcclusionPaddingSlider.disabled = !next
+}
+
+function setMaskHandOcclusionPadding(next: number) {
+  maskHandOcclusionPadding = clamp(Math.round(next), 0, 80)
+  localStorage.setItem('xedoc-hands-mask-hand-occlusion-padding', String(maskHandOcclusionPadding))
+  maskHandOcclusionPaddingSlider.value = String(maskHandOcclusionPadding)
+  maskHandOcclusionPaddingValue.textContent = `${maskHandOcclusionPadding}px`
+}
+
 function setMaskSkinColor(next: string) {
   maskSkinColor = normalizeHexColor(next, '#f2c7ad')
   localStorage.setItem('xedoc-hands-mask-skin-color', maskSkinColor)
@@ -3348,6 +3513,7 @@ function updateMaskState() {
   maskPreview.classList.toggle('is-visible', hasMainImage)
   maskStabilityBlock.classList.toggle('is-hidden', maskMode !== 'mesh')
   maskEdgeFeatherBlock.classList.toggle('is-hidden', maskMode !== 'mesh')
+  maskHandOcclusionBlock.classList.toggle('is-hidden', maskMode !== 'mesh')
   maskColorBlock.classList.toggle('is-hidden', maskMode !== 'mesh')
   maskSlotsBlock.classList.toggle('is-hidden', maskMode !== 'mesh')
   faceSwapOptions.classList.toggle('is-hidden', maskMode !== 'faceswap')
@@ -3402,6 +3568,7 @@ function createMaskMotionStates() {
     previousLandmarks: null,
     displayedLandmarks: null,
     previousAt: 0,
+    occludedUntil: 0,
   }))
 }
 
@@ -3411,6 +3578,7 @@ function resetHandTracking() {
   pinchHoldDown = false
   motionSamples = []
   zoomSamples = []
+  currentHandLandmarks = []
   cursorDot.classList.remove('is-visible')
 }
 
@@ -3522,6 +3690,12 @@ function readMaskEdgeFeather() {
   const raw = localStorage.getItem('xedoc-hands-mask-edge-feather')
   const saved = raw === null ? Number.NaN : Number(raw)
   return Number.isFinite(saved) ? clamp(Math.round(saved), 0, 80) : performanceMode === 'performance' ? 12 : 18
+}
+
+function readMaskHandOcclusionPadding() {
+  const raw = localStorage.getItem('xedoc-hands-mask-hand-occlusion-padding')
+  const saved = raw === null ? Number.NaN : Number(raw)
+  return Number.isFinite(saved) ? clamp(Math.round(saved), 0, 80) : 24
 }
 
 function readMaskSettingEnabled(key: string) {
@@ -3743,6 +3917,21 @@ function polygonCenter(points: Point2D[]): Point2D {
   }
 }
 
+function expandPolygon(points: Point2D[], pixels: number) {
+  const center = polygonCenter(points)
+
+  return points.map((point) => {
+    const dx = point.x - center.x
+    const dy = point.y - center.y
+    const length = Math.max(Math.hypot(dx, dy), 0.001)
+
+    return {
+      x: point.x + (dx / length) * pixels,
+      y: point.y + (dy / length) * pixels,
+    }
+  })
+}
+
 function triangleArea(points: Point2D[]) {
   const [a, b, c] = points
   return ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) / 2
@@ -3781,6 +3970,42 @@ function cross(origin: Point2D, first: Point2D, second: Point2D) {
 
 function cloneLandmarks(landmarks: NormalizedLandmark[]) {
   return landmarks.map((landmark) => ({ ...landmark }))
+}
+
+function getLandmarkRect(
+  landmarks: NormalizedLandmark[],
+  pointMapper: (landmark: NormalizedLandmark) => Point2D = landmarkToCanvasPoint,
+) {
+  return getPointRect(landmarks.map(pointMapper))
+}
+
+function getPointRect(points: Point2D[]): Rect2D {
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+
+  for (const point of points) {
+    minX = Math.min(minX, point.x)
+    minY = Math.min(minY, point.y)
+    maxX = Math.max(maxX, point.x)
+    maxY = Math.max(maxY, point.y)
+  }
+
+  return { minX, minY, maxX, maxY }
+}
+
+function expandRect(rect: Rect2D, pixels: number): Rect2D {
+  return {
+    minX: rect.minX - pixels,
+    minY: rect.minY - pixels,
+    maxX: rect.maxX + pixels,
+    maxY: rect.maxY + pixels,
+  }
+}
+
+function rectsIntersect(first: Rect2D, second: Rect2D) {
+  return first.minX <= second.maxX && first.maxX >= second.minX && first.minY <= second.maxY && first.maxY >= second.minY
 }
 
 function analyzeHand(landmarks: NormalizedLandmark[]) {

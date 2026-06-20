@@ -60,6 +60,7 @@ https://hands.xedoc.ru/?autostart=1
 
 - стабилизация;
 - мягкий край;
+- рука поверх маски;
 - цвет лица;
 - яркость;
 - насыщенность;
@@ -70,6 +71,8 @@ https://hands.xedoc.ru/?autostart=1
 Отдельно по лицам сейчас выбирается только изображение маски.
 
 У тяжелых настроек маски есть отдельные переключатели. Можно оставить значение ползунка сохраненным, но временно выключить сам эффект, чтобы снизить нагрузку на рендер.
+
+Режим `Рука поверх` вырезает из слоя маски область найденной руки, поэтому настоящая рука из камеры остается поверх лица. Он использует трекинг рук и работает даже когда линии рук на картинке скрыты.
 
 ## Webhook
 
@@ -108,7 +111,7 @@ http://127.0.0.1:8787/gesture
 - `gesture_used` - сработавшие жесты и лицевые сигналы. В параметрах есть `gesture`, `gestureTitle`, `preset`, `action`, `source`, `confidence`.
 - `mask_changed` - смена основной маски или маски отдельного лица. В параметрах есть `slot`, `mode`, `width`, `height`, `faceDetected`, `maskCount`.
 - `face_count_changed` - изменение количества лиц в кадре. В параметрах есть `count`, `maxCount`, `multiFace`, `faceLimit`, `maskEnabled`, `maskCount`.
-- `mask_setting_changed` - изменение настроек маски: стабилизация, мягкий край, цвет лица, яркость и насыщенность.
+- `mask_setting_changed` - изменение настроек маски: стабилизация, мягкий край, рука поверх, цвет лица, яркость, насыщенность, контраст, температура и оттенок.
 - `mask_toggled`, `mask_mode_changed`, `multi_face_toggled`, `face_tracking_toggled`, `hand_tracking_toggled`, `hand_markers_toggled` - ключевые переключатели интерфейса.
 - `performance_mode_changed`, `camera_started`, `camera_stopped`, `camera_error` - камера и режим производительности.
 - `preset_changed`, `webhook_toggled`, `webhook_endpoint_changed`, `faceswap_endpoint_changed`, `faceswap_bridge_status` - интеграции и режимы управления.
