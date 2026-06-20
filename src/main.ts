@@ -627,6 +627,37 @@ app.innerHTML = `
               <span>Мягче</span>
             </div>
           </div>
+          <div class="mask-color" id="maskColorBlock">
+            <div class="mask-stability-head">
+              <label class="input-label" for="maskColorStrength">Цвет лица</label>
+              <strong id="maskColorStrengthValue">0%</strong>
+            </div>
+            <div class="mask-color-row">
+              <input id="maskSkinColor" class="color-input" type="color" value="#f2c7ad" />
+              <button class="mask-mode-button mask-sample-button" id="maskSampleSkinButton" type="button">С лица</button>
+            </div>
+            <input id="maskColorStrength" class="range-input" type="range" min="0" max="100" step="1" value="0" />
+            <div class="range-captions">
+              <span>Оригинал</span>
+              <span>Цвет лица</span>
+            </div>
+            <div class="mask-adjust-grid">
+              <div>
+                <div class="mask-stability-head">
+                  <label class="input-label" for="maskBrightness">Яркость</label>
+                  <strong id="maskBrightnessValue">0</strong>
+                </div>
+                <input id="maskBrightness" class="range-input" type="range" min="-40" max="40" step="1" value="0" />
+              </div>
+              <div>
+                <div class="mask-stability-head">
+                  <label class="input-label" for="maskSaturation">Насыщенность</label>
+                  <strong id="maskSaturationValue">0</strong>
+                </div>
+                <input id="maskSaturation" class="range-input" type="range" min="-50" max="60" step="1" value="0" />
+              </div>
+            </div>
+          </div>
           <div class="faceswap-options" id="faceSwapOptions">
             <label class="input-label" for="faceSwapEndpoint">FaceSwap bridge</label>
             <input id="faceSwapEndpoint" class="text-input" type="url" value="http://127.0.0.1:8790/swap" />
@@ -722,6 +753,15 @@ const maskStabilityBlock = getElement<HTMLDivElement>('maskStabilityBlock')
 const maskEdgeFeatherSlider = getElement<HTMLInputElement>('maskEdgeFeather')
 const maskEdgeFeatherValue = getElement<HTMLElement>('maskEdgeFeatherValue')
 const maskEdgeFeatherBlock = getElement<HTMLDivElement>('maskEdgeFeatherBlock')
+const maskColorBlock = getElement<HTMLDivElement>('maskColorBlock')
+const maskSkinColorInput = getElement<HTMLInputElement>('maskSkinColor')
+const maskSampleSkinButton = getElement<HTMLButtonElement>('maskSampleSkinButton')
+const maskColorStrengthSlider = getElement<HTMLInputElement>('maskColorStrength')
+const maskColorStrengthValue = getElement<HTMLElement>('maskColorStrengthValue')
+const maskBrightnessSlider = getElement<HTMLInputElement>('maskBrightness')
+const maskBrightnessValue = getElement<HTMLElement>('maskBrightnessValue')
+const maskSaturationSlider = getElement<HTMLInputElement>('maskSaturation')
+const maskSaturationValue = getElement<HTMLElement>('maskSaturationValue')
 const maskModeTabs = getElement<HTMLDivElement>('maskModeTabs')
 const faceSwapOptions = getElement<HTMLDivElement>('faceSwapOptions')
 const faceSwapEndpoint = getElement<HTMLInputElement>('faceSwapEndpoint')
@@ -768,6 +808,10 @@ let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
 let maskMode: MaskMode = readMaskMode()
 let maskStability = readMaskStability()
 let maskEdgeFeather = readMaskEdgeFeather()
+let maskSkinColor = readMaskSkinColor()
+let maskColorStrength = readMaskColorStrength()
+let maskBrightness = readMaskBrightness()
+let maskSaturation = readMaskSaturation()
 let maskLayer: FaceMaskLayer | null = null
 let maskImageUrl: string | null = null
 let maskSourceBlob: Blob | null = null
@@ -803,6 +847,10 @@ setPerformanceMode(performanceMode)
 setMaskMode(maskMode)
 setMaskStability(maskStability)
 setMaskEdgeFeather(maskEdgeFeather)
+setMaskSkinColor(maskSkinColor)
+setMaskColorStrength(maskColorStrength)
+setMaskBrightness(maskBrightness)
+setMaskSaturation(maskSaturation)
 setMaskEnabled(maskEnabled)
 updateMaskState()
 setModelState('loading', 'Загрузка')
@@ -879,6 +927,26 @@ maskStabilitySlider.addEventListener('input', () => {
 
 maskEdgeFeatherSlider.addEventListener('input', () => {
   setMaskEdgeFeather(Number(maskEdgeFeatherSlider.value))
+})
+
+maskSkinColorInput.addEventListener('input', () => {
+  setMaskSkinColor(maskSkinColorInput.value)
+})
+
+maskColorStrengthSlider.addEventListener('input', () => {
+  setMaskColorStrength(Number(maskColorStrengthSlider.value))
+})
+
+maskBrightnessSlider.addEventListener('input', () => {
+  setMaskBrightness(Number(maskBrightnessSlider.value))
+})
+
+maskSaturationSlider.addEventListener('input', () => {
+  setMaskSaturation(Number(maskSaturationSlider.value))
+})
+
+maskSampleSkinButton.addEventListener('click', () => {
+  sampleMaskSkinColor()
 })
 
 faceSwapEndpoint.addEventListener('change', () => {
@@ -1452,6 +1520,7 @@ function drawFaceMask(landmarks: NormalizedLandmark[]) {
   }
 
   maskRenderContext.restore()
+  applyMaskColorCorrection()
   applyRenderedMaskFeather(landmarks)
   applySoftFaceMask(landmarks)
 
@@ -1491,6 +1560,42 @@ function getMaskRenderTriangles(layer: FaceMaskLayer, landmarks: NormalizedLandm
 
 function averageTriangleZ(landmarks: NormalizedLandmark[]) {
   return landmarks.reduce((sum, landmark) => sum + (landmark.z ?? 0), 0) / landmarks.length
+}
+
+function applyMaskColorCorrection() {
+  const strength = maskColorStrength / 100
+  const brightness = maskBrightness
+  const saturation = maskSaturation
+
+  if (strength <= 0 && brightness === 0 && saturation === 0) {
+    return
+  }
+
+  maskFeatherContext.clearRect(0, 0, maskFeatherCanvas.width, maskFeatherCanvas.height)
+  maskFeatherContext.drawImage(maskRenderCanvas, 0, 0)
+  maskRenderContext.clearRect(0, 0, maskRenderCanvas.width, maskRenderCanvas.height)
+  maskRenderContext.save()
+  maskRenderContext.filter = `brightness(${100 + brightness}%) saturate(${100 + saturation}%)`
+  maskRenderContext.drawImage(maskFeatherCanvas, 0, 0)
+  maskRenderContext.restore()
+
+  if (strength <= 0) {
+    return
+  }
+
+  maskFeatherContext.clearRect(0, 0, maskFeatherCanvas.width, maskFeatherCanvas.height)
+  maskFeatherContext.save()
+  maskFeatherContext.fillStyle = maskSkinColor
+  maskFeatherContext.fillRect(0, 0, maskFeatherCanvas.width, maskFeatherCanvas.height)
+  maskFeatherContext.globalCompositeOperation = 'destination-in'
+  maskFeatherContext.drawImage(maskRenderCanvas, 0, 0)
+  maskFeatherContext.restore()
+
+  maskRenderContext.save()
+  maskRenderContext.globalAlpha = strength
+  maskRenderContext.globalCompositeOperation = 'color'
+  maskRenderContext.drawImage(maskFeatherCanvas, 0, 0)
+  maskRenderContext.restore()
 }
 
 function applyRenderedMaskFeather(landmarks: NormalizedLandmark[]) {
@@ -1555,6 +1660,66 @@ function getAdaptiveMaskEdgeFeather(landmarks: NormalizedLandmark[]) {
 
   return Math.round(maskEdgeFeather * (1 + turn * 0.85))
 }
+
+function sampleMaskSkinColor() {
+  const landmarks = displayedMaskFaceLandmarks ?? previousMaskFaceLandmarks
+
+  if (!isRunning || !video.videoWidth || !video.videoHeight || !landmarks) {
+    maskState.textContent = 'Лицо не найдено'
+    return
+  }
+
+  syncMaskCanvases()
+  maskFeatherContext.clearRect(0, 0, maskFeatherCanvas.width, maskFeatherCanvas.height)
+  maskFeatherContext.drawImage(video, 0, 0, maskFeatherCanvas.width, maskFeatherCanvas.height)
+
+  const samples = [50, 280, 205, 425, 151, 200]
+    .map((index) => landmarks[index])
+    .filter(Boolean)
+    .map(landmarkToCanvasPoint)
+  const radius = clamp(Math.round(canvas.width * 0.006), 3, 8)
+  let red = 0
+  let green = 0
+  let blue = 0
+  let count = 0
+
+  for (const point of samples) {
+    const x = clamp(Math.round(point.x - radius), 0, Math.max(maskFeatherCanvas.width - radius * 2 - 1, 0))
+    const y = clamp(Math.round(point.y - radius), 0, Math.max(maskFeatherCanvas.height - radius * 2 - 1, 0))
+    const size = radius * 2 + 1
+    const data = maskFeatherContext.getImageData(x, y, size, size).data
+
+    for (let index = 0; index < data.length; index += 4) {
+      const r = data[index]
+      const g = data[index + 1]
+      const b = data[index + 2]
+      const luma = r * 0.2126 + g * 0.7152 + b * 0.0722
+
+      if (luma < 45 || luma > 245 || b > r * 1.25) {
+        continue
+      }
+
+      red += r
+      green += g
+      blue += b
+      count += 1
+    }
+  }
+
+  if (!count) {
+    maskState.textContent = 'Цвет не взят'
+    return
+  }
+
+  setMaskSkinColor(rgbToHex(red / count, green / count, blue / count))
+
+  if (maskColorStrength === 0) {
+    setMaskColorStrength(35)
+  }
+
+  maskState.textContent = 'Цвет взят с лица'
+}
+
 function compensateMaskLag(landmarks: NormalizedLandmark[], now: number) {
   const previousRaw = previousMaskFaceLandmarks
   const previousDisplayed = displayedMaskFaceLandmarks
@@ -2271,6 +2436,33 @@ function setMaskEdgeFeather(next: number) {
   maskEdgeFeatherValue.textContent = `${maskEdgeFeather}px`
 }
 
+function setMaskSkinColor(next: string) {
+  maskSkinColor = normalizeHexColor(next, '#f2c7ad')
+  localStorage.setItem('xedoc-hands-mask-skin-color', maskSkinColor)
+  maskSkinColorInput.value = maskSkinColor
+}
+
+function setMaskColorStrength(next: number) {
+  maskColorStrength = clamp(Math.round(next), 0, 100)
+  localStorage.setItem('xedoc-hands-mask-color-strength', String(maskColorStrength))
+  maskColorStrengthSlider.value = String(maskColorStrength)
+  maskColorStrengthValue.textContent = `${maskColorStrength}%`
+}
+
+function setMaskBrightness(next: number) {
+  maskBrightness = clamp(Math.round(next), -40, 40)
+  localStorage.setItem('xedoc-hands-mask-brightness', String(maskBrightness))
+  maskBrightnessSlider.value = String(maskBrightness)
+  maskBrightnessValue.textContent = signedValue(maskBrightness)
+}
+
+function setMaskSaturation(next: number) {
+  maskSaturation = clamp(Math.round(next), -50, 60)
+  localStorage.setItem('xedoc-hands-mask-saturation', String(maskSaturation))
+  maskSaturationSlider.value = String(maskSaturation)
+  maskSaturationValue.textContent = signedValue(maskSaturation)
+}
+
 function updateMaskState() {
   const hasImage = Boolean(maskImageUrl && maskSourceBlob)
   const meshReady = Boolean(maskLayer)
@@ -2281,6 +2473,7 @@ function updateMaskState() {
   maskPreview.classList.toggle('is-visible', hasImage)
   maskStabilityBlock.classList.toggle('is-hidden', maskMode !== 'mesh')
   maskEdgeFeatherBlock.classList.toggle('is-hidden', maskMode !== 'mesh')
+  maskColorBlock.classList.toggle('is-hidden', maskMode !== 'mesh')
   faceSwapOptions.classList.toggle('is-hidden', maskMode !== 'faceswap')
 
   if (!hasImage) {
@@ -2407,6 +2600,28 @@ function readMaskEdgeFeather() {
   return Number.isFinite(saved) ? clamp(Math.round(saved), 0, 80) : performanceMode === 'performance' ? 12 : 18
 }
 
+function readMaskSkinColor() {
+  return normalizeHexColor(localStorage.getItem('xedoc-hands-mask-skin-color') ?? '', '#f2c7ad')
+}
+
+function readMaskColorStrength() {
+  const raw = localStorage.getItem('xedoc-hands-mask-color-strength')
+  const saved = raw === null ? Number.NaN : Number(raw)
+  return Number.isFinite(saved) ? clamp(Math.round(saved), 0, 100) : 0
+}
+
+function readMaskBrightness() {
+  const raw = localStorage.getItem('xedoc-hands-mask-brightness')
+  const saved = raw === null ? Number.NaN : Number(raw)
+  return Number.isFinite(saved) ? clamp(Math.round(saved), -40, 40) : 0
+}
+
+function readMaskSaturation() {
+  const raw = localStorage.getItem('xedoc-hands-mask-saturation')
+  const saved = raw === null ? Number.NaN : Number(raw)
+  return Number.isFinite(saved) ? clamp(Math.round(saved), -50, 60) : 0
+}
+
 function getElement<T extends HTMLElement>(id: string) {
   const element = document.getElementById(id)
 
@@ -2499,6 +2714,22 @@ function landmarkToSourcePoint(landmark: NormalizedLandmark, layer: FaceMaskLaye
     x: landmark.x * layer.width,
     y: landmark.y * layer.height,
   }
+}
+
+function rgbToHex(red: number, green: number, blue: number) {
+  return `#${hexChannel(red)}${hexChannel(green)}${hexChannel(blue)}`
+}
+
+function hexChannel(value: number) {
+  return clamp(Math.round(value), 0, 255).toString(16).padStart(2, '0')
+}
+
+function normalizeHexColor(value: string, fallback: string) {
+  return /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : fallback
+}
+
+function signedValue(value: number) {
+  return value > 0 ? `+${value}` : String(value)
 }
 
 function averageLandmarkDelta(current: NormalizedLandmark[], previous: NormalizedLandmark[]) {
