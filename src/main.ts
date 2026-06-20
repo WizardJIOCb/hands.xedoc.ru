@@ -142,19 +142,6 @@ type MaskTriangleRender = {
   depth: number
 }
 
-type MaskWarpState = {
-  gl: WebGLRenderingContext
-  program: WebGLProgram
-  positionBuffer: WebGLBuffer
-  texCoordBuffer: WebGLBuffer
-  positionLocation: number
-  texCoordLocation: number
-  resolutionLocation: WebGLUniformLocation
-  textureLocation: WebGLUniformLocation
-  texture: WebGLTexture
-  textureKey: string | null
-}
-
 const tasksVersion = '0.10.35'
 const wasmPath = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${tasksVersion}/wasm`
 const gestureModelPath =
@@ -757,12 +744,6 @@ const context: CanvasRenderingContext2D = canvasContext
 const drawingUtils = new DrawingUtils(context)
 const maskRenderCanvas = document.createElement('canvas')
 const maskRenderContext = getCanvasContext(maskRenderCanvas)
-const maskWarpCanvas = document.createElement('canvas')
-const maskWarpGl = maskWarpCanvas.getContext('webgl', {
-  alpha: true,
-  antialias: false,
-  premultipliedAlpha: true,
-})
 const maskAlphaCanvas = document.createElement('canvas')
 const maskAlphaContext = getCanvasContext(maskAlphaCanvas)
 const maskFeatherCanvas = document.createElement('canvas')
@@ -774,7 +755,6 @@ const maskSourceFeatherContext = getCanvasContext(maskSourceFeatherCanvas)
 const faceSwapCaptureCanvas = document.createElement('canvas')
 const faceSwapCaptureContext = getCanvasContext(faceSwapCaptureCanvas)
 const faceSwapRequestIntervalMs = 180
-let maskWarpState: MaskWarpState | null = null
 
 let recognizer: GestureRecognizer | null = null
 let faceLandmarker: FaceLandmarker | null = null
@@ -1460,27 +1440,23 @@ function drawFaceMask(landmarks: NormalizedLandmark[]) {
 
   syncMaskCanvases()
   maskRenderContext.clearRect(0, 0, maskRenderCanvas.width, maskRenderCanvas.height)
+  maskRenderContext.save()
+  maskRenderContext.imageSmoothingEnabled = true
+  maskRenderContext.imageSmoothingQuality = 'high'
+  maskRenderContext.globalAlpha = 1
   const renderTriangles = getMaskRenderTriangles(layer, landmarks)
 
-  if (!renderMaskTextureWithWebGl(layer, renderTriangles)) {
-    maskRenderContext.save()
-    maskRenderContext.imageSmoothingEnabled = true
-    maskRenderContext.imageSmoothingQuality = 'high'
-    maskRenderContext.globalAlpha = 1
-
-    for (const triangle of renderTriangles) {
-      drawWarpedTriangle(
-        maskRenderContext,
-        layer.image,
-        triangle.source,
-        triangle.target,
-        0.6,
-      )
-    }
-
-    maskRenderContext.restore()
+  for (const triangle of renderTriangles) {
+    drawWarpedTriangle(
+      maskRenderContext,
+      layer.image,
+      triangle.source,
+      triangle.target,
+      0.6,
+    )
   }
 
+  maskRenderContext.restore()
   applyRenderedMaskFeather(layer, landmarks, renderTriangles)
   applySoftFaceMask(landmarks)
 
@@ -1520,177 +1496,6 @@ function getMaskRenderTriangles(layer: FaceMaskLayer, landmarks: NormalizedLandm
 
 function averageTriangleZ(landmarks: NormalizedLandmark[]) {
   return landmarks.reduce((sum, landmark) => sum + (landmark.z ?? 0), 0) / landmarks.length
-}
-
-function renderMaskTextureWithWebGl(layer: FaceMaskLayer, renderTriangles: MaskTriangleRender[]) {
-  const state = ensureMaskWarpState()
-
-  if (!state || !renderTriangles.length) {
-    return false
-  }
-
-  const { gl } = state
-  const textureKey = maskImageUrl ? `mask:${maskImageUrl}` : `mask:${layer.width}:${layer.height}`
-  const positions = new Float32Array(renderTriangles.length * 6)
-  const texCoords = new Float32Array(renderTriangles.length * 6)
-  let index = 0
-
-  for (const triangle of renderTriangles) {
-    for (let pointIndex = 0; pointIndex < 3; pointIndex += 1) {
-      const target = triangle.target[pointIndex]
-      const source = triangle.source[pointIndex]
-
-      positions[index * 2] = target.x
-      positions[index * 2 + 1] = target.y
-      texCoords[index * 2] = source.x / layer.width
-      texCoords[index * 2 + 1] = source.y / layer.height
-      index += 1
-    }
-  }
-
-  gl.viewport(0, 0, maskWarpCanvas.width, maskWarpCanvas.height)
-  gl.clearColor(0, 0, 0, 0)
-  gl.clear(gl.COLOR_BUFFER_BIT)
-  gl.useProgram(state.program)
-
-  gl.activeTexture(gl.TEXTURE0)
-  gl.bindTexture(gl.TEXTURE_2D, state.texture)
-
-  if (state.textureKey !== textureKey) {
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, layer.image)
-    state.textureKey = textureKey
-  }
-
-  gl.uniform1i(state.textureLocation, 0)
-  gl.uniform2f(state.resolutionLocation, maskWarpCanvas.width, maskWarpCanvas.height)
-
-  gl.bindBuffer(gl.ARRAY_BUFFER, state.positionBuffer)
-  gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW)
-  gl.enableVertexAttribArray(state.positionLocation)
-  gl.vertexAttribPointer(state.positionLocation, 2, gl.FLOAT, false, 0, 0)
-
-  gl.bindBuffer(gl.ARRAY_BUFFER, state.texCoordBuffer)
-  gl.bufferData(gl.ARRAY_BUFFER, texCoords, gl.DYNAMIC_DRAW)
-  gl.enableVertexAttribArray(state.texCoordLocation)
-  gl.vertexAttribPointer(state.texCoordLocation, 2, gl.FLOAT, false, 0, 0)
-
-  gl.drawArrays(gl.TRIANGLES, 0, renderTriangles.length * 3)
-
-  maskRenderContext.drawImage(maskWarpCanvas, 0, 0)
-  return true
-}
-
-function ensureMaskWarpState() {
-  if (maskWarpState) {
-    return maskWarpState
-  }
-
-  const gl = maskWarpGl
-
-  if (!gl) {
-    return null
-  }
-
-  const vertexShader = compileMaskWarpShader(
-    gl,
-    gl.VERTEX_SHADER,
-    `
-      attribute vec2 a_position;
-      attribute vec2 a_texCoord;
-      uniform vec2 u_resolution;
-      varying vec2 v_texCoord;
-
-      void main() {
-        vec2 zeroToOne = a_position / u_resolution;
-        vec2 clipSpace = zeroToOne * 2.0 - 1.0;
-        gl_Position = vec4(clipSpace * vec2(1.0, -1.0), 0.0, 1.0);
-        v_texCoord = a_texCoord;
-      }
-    `,
-  )
-  const fragmentShader = compileMaskWarpShader(
-    gl,
-    gl.FRAGMENT_SHADER,
-    `
-      precision mediump float;
-      uniform sampler2D u_texture;
-      varying vec2 v_texCoord;
-
-      void main() {
-        gl_FragColor = texture2D(u_texture, v_texCoord);
-      }
-    `,
-  )
-
-  if (!vertexShader || !fragmentShader) {
-    return null
-  }
-
-  const program = gl.createProgram()
-
-  if (!program) {
-    return null
-  }
-
-  gl.attachShader(program, vertexShader)
-  gl.attachShader(program, fragmentShader)
-  gl.linkProgram(program)
-
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    return null
-  }
-
-  const positionBuffer = gl.createBuffer()
-  const texCoordBuffer = gl.createBuffer()
-  const texture = gl.createTexture()
-  const resolutionLocation = gl.getUniformLocation(program, 'u_resolution')
-  const textureLocation = gl.getUniformLocation(program, 'u_texture')
-
-  if (!positionBuffer || !texCoordBuffer || !texture || !resolutionLocation || !textureLocation) {
-    return null
-  }
-
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-  gl.disable(gl.DEPTH_TEST)
-  gl.disable(gl.BLEND)
-
-  maskWarpState = {
-    gl,
-    program,
-    positionBuffer,
-    texCoordBuffer,
-    positionLocation: gl.getAttribLocation(program, 'a_position'),
-    texCoordLocation: gl.getAttribLocation(program, 'a_texCoord'),
-    resolutionLocation,
-    textureLocation,
-    texture,
-    textureKey: null,
-  }
-
-  return maskWarpState
-}
-
-function compileMaskWarpShader(gl: WebGLRenderingContext, type: number, source: string) {
-  const shader = gl.createShader(type)
-
-  if (!shader) {
-    return null
-  }
-
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    gl.deleteShader(shader)
-    return null
-  }
-
-  return shader
 }
 
 function applyRenderedMaskFeather(
@@ -2166,8 +1971,6 @@ function syncMaskCanvases() {
   if (maskRenderCanvas.width !== canvas.width || maskRenderCanvas.height !== canvas.height) {
     maskRenderCanvas.width = canvas.width
     maskRenderCanvas.height = canvas.height
-    maskWarpCanvas.width = canvas.width
-    maskWarpCanvas.height = canvas.height
     maskAlphaCanvas.width = canvas.width
     maskAlphaCanvas.height = canvas.height
     maskFeatherCanvas.width = canvas.width
