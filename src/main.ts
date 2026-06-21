@@ -1189,6 +1189,7 @@ renderGestureGrid()
 renderMaskModeTabs()
 renderPerformanceModeTabs()
 refreshIcons()
+setupCollapsiblePanels()
 setMirrorMode(mirrorMode)
 setHandTrackingEnabled(handTrackingEnabled)
 setHandMarkersEnabled(handMarkersEnabled)
@@ -4548,6 +4549,71 @@ function getCanvasContext(targetCanvas: HTMLCanvasElement) {
 
 function refreshIcons() {
   createIcons({ icons: usedIcons })
+}
+
+function setupCollapsiblePanels() {
+  const collapsedPanels = readCollapsedPanels()
+
+  document.querySelectorAll<HTMLHeadingElement>('.control-area .panel > .panel-head > h2').forEach((title) => {
+    const panel = title.closest<HTMLElement>('.panel')
+    const key = title.textContent?.trim()
+
+    if (!panel || !key) {
+      return
+    }
+
+    title.classList.add('panel-toggle-title')
+    title.tabIndex = 0
+    title.setAttribute('role', 'button')
+    title.setAttribute('aria-expanded', collapsedPanels.has(key) ? 'false' : 'true')
+    setPanelCollapsed(panel, title, collapsedPanels.has(key))
+
+    const toggle = () => {
+      const next = !panel.classList.contains('is-collapsed')
+      setPanelCollapsed(panel, title, next)
+
+      if (next) {
+        collapsedPanels.add(key)
+      } else {
+        collapsedPanels.delete(key)
+      }
+
+      saveCollapsedPanels(collapsedPanels)
+      trackMetrika('panel_collapsed_toggled', {
+        panel: key,
+        collapsed: next,
+      })
+    }
+
+    title.addEventListener('click', toggle)
+    title.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') {
+        return
+      }
+
+      event.preventDefault()
+      toggle()
+    })
+  })
+}
+
+function setPanelCollapsed(panel: HTMLElement, title: HTMLElement, collapsed: boolean) {
+  panel.classList.toggle('is-collapsed', collapsed)
+  title.setAttribute('aria-expanded', collapsed ? 'false' : 'true')
+}
+
+function readCollapsedPanels() {
+  try {
+    const raw = localStorage.getItem('xedoc-hands-collapsed-panels')
+    const parsed = raw ? JSON.parse(raw) : []
+    return new Set<string>(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [])
+  } catch {
+    return new Set<string>()
+  }
+}
+
+function saveCollapsedPanels(panels: Set<string>) {
+  localStorage.setItem('xedoc-hands-collapsed-panels', JSON.stringify([...panels]))
 }
 
 function isGestureKey(value: string): value is GestureKey {

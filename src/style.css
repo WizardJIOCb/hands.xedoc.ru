@@ -473,6 +473,41 @@ svg {
   margin-bottom: 12px;
 }
 
+.panel.is-collapsed .panel-head {
+  margin-bottom: 0;
+}
+
+.panel.is-collapsed > :not(.panel-head) {
+  display: none !important;
+}
+
+.panel-toggle-title {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.panel-toggle-title::after {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  content: '▾';
+  transition: transform 0.16s ease;
+}
+
+.panel-toggle-title[aria-expanded="false"]::after {
+  transform: rotate(-90deg);
+}
+
+.panel-toggle-title:focus-visible {
+  outline: 2px solid rgba(47, 110, 211, 0.65);
+  outline-offset: 3px;
+}
+
 .panel-head > span {
   padding: 4px 8px;
   border-radius: 999px;
