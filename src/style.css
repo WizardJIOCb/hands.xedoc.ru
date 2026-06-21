@@ -659,6 +659,18 @@ svg {
   gap: 10px;
 }
 
+.avatar-control {
+  margin-top: 8px;
+}
+
+.avatar-control:first-of-type {
+  margin-top: 0;
+}
+
+.avatar-control + .panel-state {
+  margin-top: 8px;
+}
+
 .file-button {
   min-width: 0;
   padding: 0 12px;

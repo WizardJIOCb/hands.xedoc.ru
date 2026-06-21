@@ -616,7 +616,7 @@ app.innerHTML = `
               <span></span>
             </label>
           </div>
-          <div class="mask-control">
+          <div class="mask-control avatar-control">
             <label class="file-button" for="avatarFile">
               <i data-lucide="bot"></i>
               <span>VRM</span>
@@ -624,7 +624,7 @@ app.innerHTML = `
             <input id="avatarFile" class="file-input" type="file" accept=".vrm,.glb,model/gltf-binary" />
             <button class="mask-mode-button mask-sample-button" id="avatarSampleButton" type="button">Тестовая</button>
           </div>
-          <div class="mask-control avatar-bg-control">
+          <div class="mask-control avatar-control avatar-bg-control">
             <label class="file-button" for="avatarBackgroundFile">
               <i data-lucide="scan-eye"></i>
               <span>Фон</span>
@@ -664,6 +664,17 @@ app.innerHTML = `
               <div class="range-captions">
                 <span>Быстрее</span>
                 <span>Плавнее</span>
+              </div>
+            </div>
+            <div class="mask-stability">
+              <div class="mask-stability-head">
+                <label class="input-label" for="avatarSmileSensitivity">Улыбка</label>
+                <strong id="avatarSmileSensitivityValue">100%</strong>
+              </div>
+              <input id="avatarSmileSensitivity" class="range-input" type="range" min="0" max="160" step="5" value="100" />
+              <div class="range-captions">
+                <span>Спокойнее</span>
+                <span>Ярче</span>
               </div>
             </div>
             <div class="mask-stability">
@@ -1051,6 +1062,8 @@ const avatarHandsToggle = getElement<HTMLInputElement>('avatarHandsToggle')
 const avatarTorsoToggle = getElement<HTMLInputElement>('avatarTorsoToggle')
 const avatarSmoothingSlider = getElement<HTMLInputElement>('avatarSmoothing')
 const avatarSmoothingValue = getElement<HTMLElement>('avatarSmoothingValue')
+const avatarSmileSensitivitySlider = getElement<HTMLInputElement>('avatarSmileSensitivity')
+const avatarSmileSensitivityValue = getElement<HTMLElement>('avatarSmileSensitivityValue')
 const avatarScaleSlider = getElement<HTMLInputElement>('avatarScale')
 const avatarScaleValue = getElement<HTMLElement>('avatarScaleValue')
 const avatarHeightSlider = getElement<HTMLInputElement>('avatarHeight')
@@ -1166,6 +1179,7 @@ let avatarFaceEnabled = localStorage.getItem('xedoc-hands-avatar-face') !== 'off
 let avatarHandsEnabled = localStorage.getItem('xedoc-hands-avatar-hands') !== 'off'
 let avatarTorsoEnabled = localStorage.getItem('xedoc-hands-avatar-torso') !== 'off'
 let avatarSmoothing = readAvatarSmoothing()
+let avatarSmileSensitivity = readAvatarSmileSensitivity()
 let avatarScale = readAvatarScale()
 let avatarHeight = readAvatarHeight()
 let avatarHeadRollOffset = readAvatarHeadRollOffset()
@@ -1240,6 +1254,7 @@ setAvatarFaceEnabled(avatarFaceEnabled)
 setAvatarHandsEnabled(avatarHandsEnabled)
 setAvatarTorsoEnabled(avatarTorsoEnabled)
 setAvatarSmoothing(avatarSmoothing)
+setAvatarSmileSensitivity(avatarSmileSensitivity)
 setAvatarScale(avatarScale)
 setAvatarHeight(avatarHeight)
 setAvatarHeadRollOffset(avatarHeadRollOffset)
@@ -1360,6 +1375,14 @@ avatarSmoothingSlider.addEventListener('input', () => {
 
 avatarSmoothingSlider.addEventListener('change', () => {
   trackMetrika('avatar_setting_changed', { setting: 'smoothing', value: avatarSmoothing })
+})
+
+avatarSmileSensitivitySlider.addEventListener('input', () => {
+  setAvatarSmileSensitivity(Number(avatarSmileSensitivitySlider.value))
+})
+
+avatarSmileSensitivitySlider.addEventListener('change', () => {
+  trackMetrika('avatar_setting_changed', { setting: 'smileSensitivity', value: avatarSmileSensitivity })
 })
 
 avatarScaleSlider.addEventListener('input', () => {
@@ -2585,7 +2608,8 @@ function applyAvatarFace(rig: AvatarRig, faceResult: FaceLandmarkerResult | null
   }, response)
 
   const jawOpen = getBlendshapeScore(faceResult, 'jawOpen')
-  const smile = (getBlendshapeScore(faceResult, 'mouthSmileLeft') + getBlendshapeScore(faceResult, 'mouthSmileRight')) / 2
+  const rawSmile = (getBlendshapeScore(faceResult, 'mouthSmileLeft') + getBlendshapeScore(faceResult, 'mouthSmileRight')) / 2
+  const smile = clamp((rawSmile - 0.08) * (avatarSmileSensitivity / 100), 0, 1)
   const blinkLeft = clamp(getBlendshapeScore(faceResult, 'eyeBlinkLeft') * 1.9, 0, 1)
   const blinkRight = clamp(getBlendshapeScore(faceResult, 'eyeBlinkRight') * 1.9, 0, 1)
   const blink = clamp(Math.max(blinkLeft, blinkRight) * 1.15, 0, 1)
@@ -4232,6 +4256,13 @@ function setAvatarSmoothing(next: number) {
   avatarSmoothingValue.textContent = `${avatarSmoothing}%`
 }
 
+function setAvatarSmileSensitivity(next: number) {
+  avatarSmileSensitivity = clamp(Math.round(next), 0, 160)
+  localStorage.setItem('xedoc-hands-avatar-smile-sensitivity', String(avatarSmileSensitivity))
+  avatarSmileSensitivitySlider.value = String(avatarSmileSensitivity)
+  avatarSmileSensitivityValue.textContent = `${avatarSmileSensitivity}%`
+}
+
 function setAvatarScale(next: number) {
   avatarScale = clamp(Math.round(next), 70, 220)
   localStorage.setItem('xedoc-hands-avatar-scale', String(avatarScale))
@@ -4607,6 +4638,12 @@ function readAvatarSmoothing() {
   const raw = localStorage.getItem('xedoc-hands-avatar-smoothing')
   const saved = raw === null ? Number.NaN : Number(raw)
   return Number.isFinite(saved) ? clamp(Math.round(saved), 0, 90) : 35
+}
+
+function readAvatarSmileSensitivity() {
+  const raw = localStorage.getItem('xedoc-hands-avatar-smile-sensitivity')
+  const saved = raw === null ? Number.NaN : Number(raw)
+  return Number.isFinite(saved) ? clamp(Math.round(saved), 0, 160) : 100
 }
 
 function readAvatarScale() {
