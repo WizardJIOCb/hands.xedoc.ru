@@ -2710,8 +2710,8 @@ function applyAvatarHands(rig: AvatarRig, hands: NormalizedLandmark[][], pose?: 
   }
 
   const response = getAvatarResponse()
-  let leftApplied = applyAvatarArmFromPose(rig, 'left', pose?.[11], pose?.[13], pose?.[15], response)
-  let rightApplied = applyAvatarArmFromPose(rig, 'right', pose?.[12], pose?.[14], pose?.[16], response)
+  let leftApplied = false
+  let rightApplied = false
   let leftFingersApplied = false
   let rightFingersApplied = false
 
@@ -2721,13 +2721,12 @@ function applyAvatarHands(rig: AvatarRig, hands: NormalizedLandmark[][], pose?: 
       const isLeft = center.x < 0.5
       const side: AvatarSide = isLeft ? 'left' : 'right'
 
-      if ((isLeft && !leftApplied) || (!isLeft && !rightApplied)) {
-        applyAvatarArmFromHand(rig, side, center, response * 0.45)
-        if (isLeft) {
-          leftApplied = true
-        } else {
-          rightApplied = true
-        }
+      applyAvatarArmFromHandLandmarks(rig, side, hand, response)
+
+      if (isLeft) {
+        leftApplied = true
+      } else {
+        rightApplied = true
       }
 
       applyAvatarHandLandmarks(rig, side, hand, response)
@@ -2737,6 +2736,14 @@ function applyAvatarHands(rig: AvatarRig, hands: NormalizedLandmark[][], pose?: 
         rightFingersApplied = true
       }
     }
+  }
+
+  if (!leftApplied) {
+    leftApplied = applyAvatarArmFromPose(rig, 'left', pose?.[11], pose?.[13], pose?.[15], response)
+  }
+
+  if (!rightApplied) {
+    rightApplied = applyAvatarArmFromPose(rig, 'right', pose?.[12], pose?.[14], pose?.[16], response)
   }
 
   if (!leftApplied) {
@@ -2825,6 +2832,70 @@ function applyAvatarArmFromHand(
     y: 0,
     z: clamp(sideSign * x * 0.85, -0.55, 0.55),
   }, response)
+}
+
+function applyAvatarArmFromHandLandmarks(
+  rig: AvatarRig,
+  side: AvatarSide,
+  landmarks: NormalizedLandmark[],
+  response: number,
+) {
+  const wrist = landmarks[0]
+  const indexBase = landmarks[5]
+  const middleBase = landmarks[9]
+  const ringBase = landmarks[13]
+  const littleBase = landmarks[17]
+  const middleTip = landmarks[12]
+
+  if (!wrist || !indexBase || !middleBase || !ringBase || !littleBase || !middleTip) {
+    applyAvatarArmFromHand(rig, side, handCenter(landmarks), response * 0.7)
+    return
+  }
+
+  const sideSign = side === 'left' ? -1 : 1
+  const mirrorSign = mirrorMode ? -1 : 1
+  const palmCenter = {
+    x: (wrist.x + indexBase.x + middleBase.x + ringBase.x + littleBase.x) / 5,
+    y: (wrist.y + indexBase.y + middleBase.y + ringBase.y + littleBase.y) / 5,
+    z: ((wrist.z ?? 0) + (indexBase.z ?? 0) + (middleBase.z ?? 0) + (ringBase.z ?? 0) + (littleBase.z ?? 0)) / 5,
+    visibility: Math.min(
+      wrist.visibility ?? 1,
+      indexBase.visibility ?? 1,
+      middleBase.visibility ?? 1,
+      ringBase.visibility ?? 1,
+      littleBase.visibility ?? 1,
+    ),
+  }
+  const x = (palmCenter.x - 0.5) * mirrorSign
+  const y = palmCenter.y - 0.52 + getAvatarHandHeightOffset()
+  const palmVectorX = (middleBase.x - wrist.x) * mirrorSign
+  const palmVectorY = middleBase.y - wrist.y
+  const fingerVectorX = (middleTip.x - middleBase.x) * mirrorSign
+  const fingerVectorY = middleTip.y - middleBase.y
+  const palmAngle = Math.atan2(palmVectorY, palmVectorX)
+  const fingerAngle = Math.atan2(fingerVectorY, fingerVectorX)
+  const palmUp = clamp((0.58 - palmCenter.y) * 2.15, -0.28, 0.96)
+  const sideReach = clamp(Math.abs(x) * 2.25, 0, 1)
+  const forwardDepth = clamp(-palmCenter.z * 1.25, -0.38, 0.52)
+  const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
+  const lowerName = side === 'left' ? VRMHumanBoneName.LeftLowerArm : VRMHumanBoneName.RightLowerArm
+  const handName = side === 'left' ? VRMHumanBoneName.LeftHand : VRMHumanBoneName.RightHand
+
+  rotateAvatarBone(rig, upperName, `${side}UpperArm`, {
+    x: clamp(0.12 + palmUp * 1.05 - y * 0.72, -0.55, 1.18),
+    y: clamp(sideSign * (forwardDepth * 0.8 + x * 0.28), -0.62, 0.62),
+    z: clamp(sideSign * (0.36 + sideReach * 0.86 + x * 0.62), -1.22, 1.22),
+  }, response * 0.92)
+  rotateAvatarBone(rig, lowerName, `${side}LowerArm`, {
+    x: clamp(0.24 + palmUp * 0.86 - y * 0.5, -0.55, 1.05),
+    y: clamp(sideSign * forwardDepth * 0.55, -0.48, 0.48),
+    z: clamp(sideSign * (x * 1.18 + sideReach * 0.24), -0.92, 0.92),
+  }, response * 0.9)
+  rotateAvatarBone(rig, handName, `${side}Hand`, {
+    x: clamp(-palmVectorY * 2.4 + palmUp * 0.36, -0.72, 0.72),
+    y: clamp(sideSign * forwardDepth * 0.95, -0.62, 0.62),
+    z: clamp(sideSign * normalizeAngle(fingerAngle - palmAngle) * 0.58, -0.68, 0.68),
+  }, response * 0.82)
 }
 
 function applyAvatarHandLandmarks(
