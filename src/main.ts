@@ -663,7 +663,7 @@ app.innerHTML = `
                 <label class="input-label" for="avatarScale">Масштаб</label>
                 <strong id="avatarScaleValue">100%</strong>
               </div>
-              <input id="avatarScale" class="range-input" type="range" min="65" max="145" step="1" value="100" />
+            <input id="avatarScale" class="range-input" type="range" min="70" max="220" step="1" value="100" />
             </div>
             <div class="mask-stability">
               <div class="mask-stability-head">
@@ -2306,9 +2306,9 @@ function ensureAvatarRig() {
   }
 
   const scene = new THREE.Scene()
-  const camera = new THREE.PerspectiveCamera(28, 16 / 9, 0.1, 100)
-  camera.position.set(0, 1.18, 3.25)
-  camera.lookAt(0, 1.05, 0)
+  const camera = new THREE.PerspectiveCamera(30, 16 / 9, 0.1, 100)
+  camera.position.set(0, 1.12, 2.45)
+  camera.lookAt(0, 1.04, 0)
 
   const renderer = new THREE.WebGLRenderer({
     canvas: avatarCanvas,
@@ -2348,6 +2348,7 @@ function ensureAvatarRig() {
   }
 
   syncAvatarRendererSize()
+  prepareAvatarObjectFrame(fallbackData.group, true)
   applyAvatarTransform()
   renderAvatarScene(performance.now())
   return avatarRig
@@ -2464,9 +2465,10 @@ async function loadAvatarModel(url: string, label: string) {
     rig.fallback.visible = false
     rig.currentVrm = vrm ?? null
     rig.currentObject = object
-    object.position.set(0, -0.95, 0)
+    object.position.set(0, 0, 0)
     object.rotation.set(0, 0, 0)
     rig.scene.add(object)
+    prepareAvatarObjectFrame(object, object === rig.fallback)
     avatarModelUrl = url
     applyAvatarTransform()
     avatarState.textContent = vrm ? `VRM: ${label}` : `Модель: ${label}`
@@ -2553,19 +2555,31 @@ function applyAvatarTorso(rig: AvatarRig, pose?: NormalizedLandmark[]) {
 
 function applyAvatarHands(rig: AvatarRig, hands: NormalizedLandmark[][], pose?: NormalizedLandmark[]) {
   if (!avatarHandsEnabled) {
+    applyAvatarRestArms(rig, getAvatarResponse() * 0.45)
     return
   }
 
   const response = getAvatarResponse()
-  applyAvatarArmFromPose(rig, 'left', pose?.[11], pose?.[13], pose?.[15], response)
-  applyAvatarArmFromPose(rig, 'right', pose?.[12], pose?.[14], pose?.[16], response)
+  const leftApplied = applyAvatarArmFromPose(rig, 'left', pose?.[11], pose?.[13], pose?.[15], response)
+  const rightApplied = applyAvatarArmFromPose(rig, 'right', pose?.[12], pose?.[14], pose?.[16], response)
 
-  if (!pose && hands.length > 0) {
+  if ((!leftApplied || !rightApplied) && hands.length > 0) {
     for (const hand of hands.slice(0, 2)) {
       const center = handCenter(hand)
       const isLeft = center.x < 0.5
-      applyAvatarArmFromHand(rig, isLeft ? 'left' : 'right', center, response)
+
+      if ((isLeft && !leftApplied) || (!isLeft && !rightApplied)) {
+        applyAvatarArmFromHand(rig, isLeft ? 'left' : 'right', center, response * 0.45)
+      }
     }
+  }
+
+  if (!leftApplied) {
+    applyAvatarRestArm(rig, 'left', response * 0.22)
+  }
+
+  if (!rightApplied) {
+    applyAvatarRestArm(rig, 'right', response * 0.22)
   }
 }
 
@@ -2577,36 +2591,41 @@ function applyAvatarArmFromPose(
   wrist: NormalizedLandmark | undefined,
   response: number,
 ) {
-  if (!shoulder || !elbow || !wrist) {
-    return
+  if (!isReliablePoseChain(shoulder, elbow, wrist)) {
+    return false
   }
 
+  const safeShoulder = shoulder!
+  const safeElbow = elbow!
+  const safeWrist = wrist!
   const sideSign = side === 'left' ? -1 : 1
   const mirrorSign = mirrorMode ? -1 : 1
-  const upperDx = (elbow.x - shoulder.x) * mirrorSign
-  const upperDy = elbow.y - shoulder.y
-  const lowerDx = (wrist.x - elbow.x) * mirrorSign
-  const lowerDy = wrist.y - elbow.y
-  const wristDepth = wrist.z ?? 0
+  const upperDx = (safeElbow.x - safeShoulder.x) * mirrorSign
+  const upperDy = safeElbow.y - safeShoulder.y
+  const lowerDx = (safeWrist.x - safeElbow.x) * mirrorSign
+  const lowerDy = safeWrist.y - safeElbow.y
+  const wristDepth = safeWrist.z ?? 0
   const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
   const lowerName = side === 'left' ? VRMHumanBoneName.LeftLowerArm : VRMHumanBoneName.RightLowerArm
   const handName = side === 'left' ? VRMHumanBoneName.LeftHand : VRMHumanBoneName.RightHand
 
   rotateAvatarBone(rig, upperName, `${side}UpperArm`, {
-    x: clamp(-upperDy * 2.25 + 0.16, -1.25, 1.15),
-    y: clamp(sideSign * wristDepth * 1.5, -0.7, 0.7),
-    z: clamp(sideSign * (0.82 + upperDx * 4.2), -1.55, 1.55),
+    x: clamp(-upperDy * 1.45 + 0.24, -0.85, 0.95),
+    y: clamp(sideSign * wristDepth * 0.85, -0.38, 0.38),
+    z: clamp(sideSign * (0.62 + upperDx * 2.35), -1.05, 1.05),
   }, response)
   rotateAvatarBone(rig, lowerName, `${side}LowerArm`, {
-    x: clamp(-lowerDy * 2.3, -1.35, 1.1),
+    x: clamp(-lowerDy * 1.55 + 0.08, -0.9, 0.9),
     y: 0,
-    z: clamp(sideSign * lowerDx * 4.1, -1.3, 1.3),
+    z: clamp(sideSign * lowerDx * 2.2, -0.85, 0.85),
   }, response)
   rotateAvatarBone(rig, handName, `${side}Hand`, {
-    x: clamp(-lowerDy * 1.4, -0.9, 0.9),
-    y: clamp(sideSign * lowerDx * 1.5, -0.8, 0.8),
-    z: clamp(sideSign * lowerDx * 1.8, -0.9, 0.9),
+    x: clamp(-lowerDy * 0.9, -0.48, 0.48),
+    y: clamp(sideSign * lowerDx * 0.8, -0.42, 0.42),
+    z: clamp(sideSign * lowerDx * 0.9, -0.45, 0.45),
   }, response)
+
+  return true
 }
 
 function applyAvatarArmFromHand(
@@ -2623,14 +2642,42 @@ function applyAvatarArmFromHand(
   const lowerName = side === 'left' ? VRMHumanBoneName.LeftLowerArm : VRMHumanBoneName.RightLowerArm
 
   rotateAvatarBone(rig, upperName, `${side}UpperArm`, {
-    x: clamp(-y * 2.1, -1.15, 1.1),
+    x: clamp(-y * 0.9 + 0.2, -0.55, 0.65),
     y: 0,
-    z: clamp(sideSign * (0.9 + x * 2.5), -1.45, 1.45),
+    z: clamp(sideSign * (0.56 + x * 1.1), -0.95, 0.95),
   }, response)
   rotateAvatarBone(rig, lowerName, `${side}LowerArm`, {
-    x: clamp(-y * 1.4, -1.1, 1.1),
+    x: clamp(-y * 0.65 + 0.12, -0.55, 0.55),
     y: 0,
-    z: clamp(sideSign * x * 2.2, -1.1, 1.1),
+    z: clamp(sideSign * x * 0.85, -0.55, 0.55),
+  }, response)
+}
+
+function applyAvatarRestArms(rig: AvatarRig, response: number) {
+  applyAvatarRestArm(rig, 'left', response)
+  applyAvatarRestArm(rig, 'right', response)
+}
+
+function applyAvatarRestArm(rig: AvatarRig, side: 'left' | 'right', response: number) {
+  const sideSign = side === 'left' ? -1 : 1
+  const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
+  const lowerName = side === 'left' ? VRMHumanBoneName.LeftLowerArm : VRMHumanBoneName.RightLowerArm
+  const handName = side === 'left' ? VRMHumanBoneName.LeftHand : VRMHumanBoneName.RightHand
+
+  rotateAvatarBone(rig, upperName, `${side}UpperArm`, {
+    x: 0.34,
+    y: 0,
+    z: sideSign * 0.58,
+  }, response)
+  rotateAvatarBone(rig, lowerName, `${side}LowerArm`, {
+    x: 0.22,
+    y: 0,
+    z: sideSign * 0.22,
+  }, response)
+  rotateAvatarBone(rig, handName, `${side}Hand`, {
+    x: 0,
+    y: 0,
+    z: sideSign * 0.08,
   }, response)
 }
 
@@ -2690,10 +2737,26 @@ function applyAvatarTransform() {
     return
   }
 
-  const scale = avatarScale / 100
+  const baseScale = typeof object.userData.avatarBaseScale === 'number' ? object.userData.avatarBaseScale : 1
+  const baseY = typeof object.userData.avatarBaseY === 'number' ? object.userData.avatarBaseY : 0
+  const scale = (avatarScale / 100) * baseScale
   object.scale.setScalar(scale)
-  object.position.y = object === rig.fallback ? -0.35 + avatarHeight / 100 : -0.95 + avatarHeight / 100
+  object.position.y = baseY + avatarHeight / 100
   renderAvatarScene(performance.now())
+}
+
+function prepareAvatarObjectFrame(object: THREE.Object3D, fallback = false) {
+  object.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(object)
+  const size = new THREE.Vector3()
+  const center = new THREE.Vector3()
+  box.getSize(size)
+  box.getCenter(center)
+  const height = Math.max(size.y, 0.001)
+  const desiredHeight = fallback ? 2.15 : 2.65
+  const baseScale = desiredHeight / height
+  object.userData.avatarBaseScale = baseScale
+  object.userData.avatarBaseY = 0.56 - center.y * baseScale
 }
 
 function getAvatarResponse() {
@@ -2702,6 +2765,10 @@ function getAvatarResponse() {
 
 function getBlendshapeScore(result: FaceLandmarkerResult | null, name: string) {
   return result?.faceBlendshapes?.[0]?.categories.find((category) => category.categoryName === name)?.score ?? 0
+}
+
+function isReliablePoseChain(...landmarks: Array<NormalizedLandmark | undefined>) {
+  return landmarks.every((landmark) => landmark && (landmark.visibility ?? 1) >= 0.48)
 }
 
 function getFaceRoll(face: NormalizedLandmark[]) {
@@ -4039,7 +4106,7 @@ function setAvatarSmoothing(next: number) {
 }
 
 function setAvatarScale(next: number) {
-  avatarScale = clamp(Math.round(next), 65, 145)
+  avatarScale = clamp(Math.round(next), 70, 220)
   localStorage.setItem('xedoc-hands-avatar-scale', String(avatarScale))
   avatarScaleSlider.value = String(avatarScale)
   avatarScaleValue.textContent = `${avatarScale}%`
@@ -4385,7 +4452,7 @@ function readAvatarSmoothing() {
 function readAvatarScale() {
   const raw = localStorage.getItem('xedoc-hands-avatar-scale')
   const saved = raw === null ? Number.NaN : Number(raw)
-  return Number.isFinite(saved) ? clamp(Math.round(saved), 65, 145) : 100
+  return Number.isFinite(saved) ? clamp(Math.round(saved), 70, 220) : 100
 }
 
 function readAvatarHeight() {
