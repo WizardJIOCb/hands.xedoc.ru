@@ -2627,7 +2627,7 @@ async function loadAvatarModel(url: string, label: string) {
 function applyAvatarFace(rig: AvatarRig, faceResult: FaceLandmarkerResult | null, face?: NormalizedLandmark[]) {
   const idle = performance.now() * 0.001
   const pose = face ? getHeadPose(face) : null
-  const yaw = pose ? (mirrorMode ? -pose.yaw : pose.yaw) : Math.sin(idle * 0.7) * 0.03
+  const yaw = pose ? pose.yaw : Math.sin(idle * 0.7) * 0.03
   const pitchOffset = (avatarHeadPitchOffset * Math.PI) / 180
   const pitch = (pose ? pose.pitch : Math.sin(idle * 0.9) * 0.025) * (avatarHeadPitchScale / 100) + pitchOffset
   const rollOffset = (avatarHeadRollOffset * Math.PI) / 180
