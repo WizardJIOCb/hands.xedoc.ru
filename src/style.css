@@ -434,6 +434,10 @@ svg {
   contain: inline-size;
 }
 
+.control-area > .panel {
+  order: 10;
+}
+
 .app-shell.is-settings-hidden .control-area {
   display: none;
 }
@@ -453,6 +457,19 @@ svg {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+  order: 0;
+}
+
+.face-panel {
+  order: 1;
+}
+
+.mask-panel {
+  order: 2;
+}
+
+.avatar-panel {
+  order: 3;
 }
 
 .status-line {

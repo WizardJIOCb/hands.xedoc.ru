@@ -649,9 +649,9 @@ app.innerHTML = `
           </div>
         </section>
 
-        <section class="panel">
+        <section class="panel avatar-panel">
           <div class="panel-head">
-            <h2>Аватар</h2>
+            <h2>3D Аватар</h2>
             <label class="switch">
               <input id="avatarToggle" type="checkbox" />
               <span></span>
@@ -777,7 +777,7 @@ app.innerHTML = `
           </div>
         </section>
 
-        <section class="panel">
+        <section class="panel face-panel">
           <div class="panel-head">
             <h2>Лицо</h2>
             <label class="switch">
@@ -796,7 +796,7 @@ app.innerHTML = `
           <p class="panel-state mode-state" id="multiFaceState">1 лицо</p>
         </section>
 
-        <section class="panel">
+        <section class="panel mask-panel">
           <div class="panel-head">
             <h2>Маска</h2>
             <label class="switch">
