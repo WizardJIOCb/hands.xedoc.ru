@@ -240,6 +240,7 @@ svg {
 }
 
 #cameraVideo,
+#avatarCanvas,
 #overlayCanvas {
   position: absolute;
   inset: 0;
@@ -255,9 +256,24 @@ svg {
   z-index: 2;
 }
 
+#avatarCanvas {
+  z-index: 1;
+  display: none;
+}
+
 .stage.is-mirrored #cameraVideo,
+.stage.is-mirrored #avatarCanvas,
 .stage.is-mirrored #overlayCanvas {
   transform: scaleX(-1);
+}
+
+.stage.is-avatar-mode #cameraVideo,
+.stage.is-avatar-mode #overlayCanvas {
+  opacity: 0;
+}
+
+.stage.is-avatar-mode #avatarCanvas {
+  display: block;
 }
 
 .stage-empty {

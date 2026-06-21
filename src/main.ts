@@ -4,11 +4,16 @@ import {
   FaceLandmarker,
   FilesetResolver,
   GestureRecognizer,
+  PoseLandmarker,
   type Category,
   type FaceLandmarkerResult,
   type GestureRecognizerResult,
   type NormalizedLandmark,
+  type PoseLandmarkerResult,
 } from '@mediapipe/tasks-vision'
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { VRM, VRMHumanBoneName, VRMLoaderPlugin } from '@pixiv/three-vrm'
 import {
   ArrowDown,
   ArrowUp,
@@ -159,6 +164,19 @@ type MaskTriangleRender = {
   depth: number
 }
 
+type AvatarRig = {
+  scene: THREE.Scene
+  camera: THREE.PerspectiveCamera
+  renderer: THREE.WebGLRenderer
+  loader: GLTFLoader
+  lightRig: THREE.Group
+  fallback: THREE.Group
+  fallbackBones: Record<string, THREE.Object3D>
+  currentVrm: VRM | null
+  currentObject: THREE.Object3D | null
+  lastRenderedAt: number
+}
+
 type MetrikaParams = Record<string, string | number | boolean>
 
 declare global {
@@ -176,6 +194,10 @@ const gestureModelPath =
   'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task'
 const faceModelPath =
   'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task'
+const poseModelPath =
+  'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task'
+const defaultAvatarModelUrl =
+  'https://raw.githubusercontent.com/pixiv/three-vrm/master/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm'
 
 const usedIcons = {
   ArrowDown,
@@ -501,6 +523,7 @@ app.innerHTML = `
       <section class="stage-area" aria-label="Камера и жесты">
         <div class="stage" id="stage">
           <video id="cameraVideo" playsinline muted></video>
+          <canvas id="avatarCanvas"></canvas>
           <canvas id="overlayCanvas"></canvas>
           <div class="cursor-dot" id="cursorDot"></div>
           <div class="stage-empty" id="stageEmpty">
@@ -581,6 +604,73 @@ app.innerHTML = `
             <div>
               <span class="label">Лицо</span>
               <strong id="faceStatus">Ожидание</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Аватар</h2>
+            <label class="switch">
+              <input id="avatarToggle" type="checkbox" />
+              <span></span>
+            </label>
+          </div>
+          <div class="mask-control">
+            <label class="file-button" for="avatarFile">
+              <i data-lucide="bot"></i>
+              <span>VRM</span>
+            </label>
+            <input id="avatarFile" class="file-input" type="file" accept=".vrm,.glb,model/gltf-binary" />
+            <button class="mask-mode-button mask-sample-button" id="avatarSampleButton" type="button">Тестовая</button>
+          </div>
+          <p class="panel-state" id="avatarState">Выключен</p>
+          <div class="mask-adjust-grid">
+            <div class="option-row">
+              <span>Голова и мимика</span>
+              <label class="switch">
+                <input id="avatarFaceToggle" type="checkbox" checked />
+                <span></span>
+              </label>
+            </div>
+            <div class="option-row">
+              <span>Руки</span>
+              <label class="switch">
+                <input id="avatarHandsToggle" type="checkbox" checked />
+                <span></span>
+              </label>
+            </div>
+            <div class="option-row">
+              <span>Торс</span>
+              <label class="switch">
+                <input id="avatarTorsoToggle" type="checkbox" checked />
+                <span></span>
+              </label>
+            </div>
+            <div class="mask-stability">
+              <div class="mask-stability-head">
+                <label class="input-label" for="avatarSmoothing">Сглаживание</label>
+                <strong id="avatarSmoothingValue">35%</strong>
+              </div>
+              <input id="avatarSmoothing" class="range-input" type="range" min="0" max="90" step="1" value="35" />
+              <div class="range-captions">
+                <span>Быстрее</span>
+                <span>Плавнее</span>
+              </div>
+            </div>
+            <div class="mask-stability">
+              <div class="mask-stability-head">
+                <label class="input-label" for="avatarScale">Масштаб</label>
+                <strong id="avatarScaleValue">100%</strong>
+              </div>
+              <input id="avatarScale" class="range-input" type="range" min="65" max="145" step="1" value="100" />
+            </div>
+            <div class="mask-stability">
+              <div class="mask-stability-head">
+                <label class="input-label" for="avatarHeight">Высота</label>
+                <strong id="avatarHeightValue">0</strong>
+              </div>
+              <input id="avatarHeight" class="range-input" type="range" min="-60" max="60" step="1" value="0" />
             </div>
           </div>
         </section>
@@ -892,6 +982,7 @@ app.innerHTML = `
 
 const stage = getElement<HTMLDivElement>('stage')
 const video = getElement<HTMLVideoElement>('cameraVideo')
+const avatarCanvas = getElement<HTMLCanvasElement>('avatarCanvas')
 const canvas = getElement<HTMLCanvasElement>('overlayCanvas')
 const canvasContext = canvas.getContext('2d')
 const cursorDot = getElement<HTMLDivElement>('cursorDot')
@@ -919,6 +1010,19 @@ const hudState = getElement<HTMLElement>('hudState')
 const performanceTitle = getElement<HTMLElement>('performanceTitle')
 const performanceModeTabs = getElement<HTMLDivElement>('performanceModeTabs')
 const performanceModeState = getElement<HTMLElement>('performanceModeState')
+const avatarToggle = getElement<HTMLInputElement>('avatarToggle')
+const avatarFile = getElement<HTMLInputElement>('avatarFile')
+const avatarSampleButton = getElement<HTMLButtonElement>('avatarSampleButton')
+const avatarState = getElement<HTMLElement>('avatarState')
+const avatarFaceToggle = getElement<HTMLInputElement>('avatarFaceToggle')
+const avatarHandsToggle = getElement<HTMLInputElement>('avatarHandsToggle')
+const avatarTorsoToggle = getElement<HTMLInputElement>('avatarTorsoToggle')
+const avatarSmoothingSlider = getElement<HTMLInputElement>('avatarSmoothing')
+const avatarSmoothingValue = getElement<HTMLElement>('avatarSmoothingValue')
+const avatarScaleSlider = getElement<HTMLInputElement>('avatarScale')
+const avatarScaleValue = getElement<HTMLElement>('avatarScaleValue')
+const avatarHeightSlider = getElement<HTMLInputElement>('avatarHeight')
+const avatarHeightValue = getElement<HTMLElement>('avatarHeightValue')
 const currentGesture = getElement<HTMLElement>('currentGesture')
 const fpsValue = getElement<HTMLElement>('fpsValue')
 const handCount = getElement<HTMLElement>('handCount')
@@ -1007,6 +1111,7 @@ const faceSwapRequestIntervalMs = 180
 let recognizer: GestureRecognizer | null = null
 let faceLandmarker: FaceLandmarker | null = null
 let maskFaceLandmarker: FaceLandmarker | null = null
+let poseLandmarker: PoseLandmarker | null = null
 let visionFileset: VisionFileset | null = null
 let modelBootPromise: Promise<void> | null = null
 let stream: MediaStream | null = null
@@ -1020,6 +1125,13 @@ let faceTrackingEnabled = localStorage.getItem('xedoc-hands-face-tracking') !== 
 let multiFaceTrackingEnabled = localStorage.getItem('xedoc-hands-multi-face') === 'on'
 let hudVisible = localStorage.getItem('xedoc-hands-hud') !== 'off'
 let performanceMode: PerformanceMode = readPerformanceMode()
+let avatarEnabled = localStorage.getItem('xedoc-hands-avatar-enabled') === 'true'
+let avatarFaceEnabled = localStorage.getItem('xedoc-hands-avatar-face') !== 'off'
+let avatarHandsEnabled = localStorage.getItem('xedoc-hands-avatar-hands') !== 'off'
+let avatarTorsoEnabled = localStorage.getItem('xedoc-hands-avatar-torso') !== 'off'
+let avatarSmoothing = readAvatarSmoothing()
+let avatarScale = readAvatarScale()
+let avatarHeight = readAvatarHeight()
 let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
 let maskMode: MaskMode = readMaskMode()
 let maskStability = readMaskStability()
@@ -1063,6 +1175,9 @@ let pinchDown = false
 let pinchStartedAt: number | null = null
 let pinchHoldDown = false
 let currentHandLandmarks: NormalizedLandmark[][] = []
+let avatarRig: AvatarRig | null = null
+let avatarModelUrl: string | null = null
+let avatarLoading = false
 let motionSamples: MotionSample[] = []
 let zoomSamples: MotionSample[] = []
 let headSamples: HeadSample[] = []
@@ -1081,6 +1196,13 @@ setFaceTrackingEnabled(faceTrackingEnabled)
 setMultiFaceTrackingEnabled(multiFaceTrackingEnabled, false)
 setHudVisible(hudVisible)
 setPerformanceMode(performanceMode)
+setAvatarFaceEnabled(avatarFaceEnabled)
+setAvatarHandsEnabled(avatarHandsEnabled)
+setAvatarTorsoEnabled(avatarTorsoEnabled)
+setAvatarSmoothing(avatarSmoothing)
+setAvatarScale(avatarScale)
+setAvatarHeight(avatarHeight)
+setAvatarEnabled(avatarEnabled)
 setMaskMode(maskMode)
 setMaskStability(maskStability)
 setMaskEdgeFeather(maskEdgeFeather)
@@ -1159,6 +1281,78 @@ multiFaceToggle.addEventListener('change', () => {
 hudToggle.addEventListener('change', () => {
   setHudVisible(hudToggle.checked)
   trackToggle('hud_toggled', hudToggle.checked)
+})
+
+avatarToggle.addEventListener('change', () => {
+  setAvatarEnabled(avatarToggle.checked)
+  trackToggle('avatar_toggled', avatarEnabled, {
+    face: avatarFaceEnabled,
+    hands: avatarHandsEnabled,
+    torso: avatarTorsoEnabled,
+  })
+
+  if (avatarEnabled) {
+    void ensureAvatarModel()
+  }
+})
+
+avatarFaceToggle.addEventListener('change', () => {
+  setAvatarFaceEnabled(avatarFaceToggle.checked)
+  trackToggle('avatar_face_toggled', avatarFaceEnabled)
+})
+
+avatarHandsToggle.addEventListener('change', () => {
+  setAvatarHandsEnabled(avatarHandsToggle.checked)
+  trackToggle('avatar_hands_toggled', avatarHandsEnabled)
+})
+
+avatarTorsoToggle.addEventListener('change', () => {
+  setAvatarTorsoEnabled(avatarTorsoToggle.checked)
+  trackToggle('avatar_torso_toggled', avatarTorsoEnabled)
+})
+
+avatarSmoothingSlider.addEventListener('input', () => {
+  setAvatarSmoothing(Number(avatarSmoothingSlider.value))
+})
+
+avatarSmoothingSlider.addEventListener('change', () => {
+  trackMetrika('avatar_setting_changed', { setting: 'smoothing', value: avatarSmoothing })
+})
+
+avatarScaleSlider.addEventListener('input', () => {
+  setAvatarScale(Number(avatarScaleSlider.value))
+})
+
+avatarScaleSlider.addEventListener('change', () => {
+  trackMetrika('avatar_setting_changed', { setting: 'scale', value: avatarScale })
+})
+
+avatarHeightSlider.addEventListener('input', () => {
+  setAvatarHeight(Number(avatarHeightSlider.value))
+})
+
+avatarHeightSlider.addEventListener('change', () => {
+  trackMetrika('avatar_setting_changed', { setting: 'height', value: avatarHeight })
+})
+
+avatarSampleButton.addEventListener('click', () => {
+  void loadAvatarModel(defaultAvatarModelUrl, 'Тестовая VRM')
+})
+
+avatarFile.addEventListener('change', () => {
+  const file = avatarFile.files?.[0]
+
+  if (!file) {
+    return
+  }
+
+  if (avatarModelUrl?.startsWith('blob:')) {
+    URL.revokeObjectURL(avatarModelUrl)
+  }
+
+  const objectUrl = URL.createObjectURL(file)
+  void loadAvatarModel(objectUrl, file.name)
+  avatarFile.value = ''
 })
 
 performanceModeTabs.addEventListener('click', (event) => {
@@ -1380,6 +1574,10 @@ window.addEventListener('beforeunload', () => {
 
   extraMaskSlots.forEach(revokeMaskSlot)
   resetFaceSwapFrame()
+
+  if (avatarModelUrl?.startsWith('blob:')) {
+    URL.revokeObjectURL(avatarModelUrl)
+  }
 })
 
 const savedWebhook = localStorage.getItem('xedoc-hands-webhook-url')
@@ -1424,7 +1622,7 @@ async function bootModels() {
   try {
     const vision = await getVisionFileset()
 
-    const [handTask, faceTask, maskFaceTask] = await Promise.all([
+    const [handTask, faceTask, maskFaceTask, poseTask] = await Promise.all([
       GestureRecognizer.createFromOptions(vision, {
         baseOptions: {
           modelAssetPath: gestureModelPath,
@@ -1438,11 +1636,13 @@ async function bootModels() {
       }),
       createVideoFaceLandmarker(vision),
       createMaskFaceLandmarker(vision),
+      createPoseLandmarker(vision),
     ])
 
     recognizer = handTask
     faceLandmarker = faceTask
     maskFaceLandmarker = maskFaceTask
+    poseLandmarker = poseTask
 
     setModelState('ready', 'Готовы')
     setFaceState('idle', faceTrackingEnabled ? 'Нет лица' : 'Откл.')
@@ -1493,6 +1693,20 @@ async function createMaskFaceLandmarker(vision: VisionFileset) {
     minFaceDetectionConfidence: 0.55,
     minFacePresenceConfidence: 0.55,
     minTrackingConfidence: 0.55,
+  })
+}
+
+async function createPoseLandmarker(vision: VisionFileset) {
+  return PoseLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: poseModelPath,
+      delegate: 'GPU',
+    },
+    runningMode: 'VIDEO',
+    numPoses: 1,
+    minPoseDetectionConfidence: 0.5,
+    minPosePresenceConfidence: 0.5,
+    minTrackingConfidence: 0.5,
   })
 }
 
@@ -1621,14 +1835,20 @@ function predictFrame(now: number) {
     lastVideoTime = video.currentTime
     const handResult = handTrackingEnabled ? recognizer.recognizeForVideo(video, now) : null
     const faceResult = faceTrackingEnabled ? faceLandmarker.detectForVideo(video, now) : null
-    processResult(handResult, faceResult, now)
+    const poseResult = avatarEnabled && avatarTorsoEnabled && poseLandmarker ? poseLandmarker.detectForVideo(video, now) : null
+    processResult(handResult, faceResult, poseResult, now)
     updateFps(now)
   }
 
   requestAnimationFrame(predictFrame)
 }
 
-function processResult(result: GestureRecognizerResult | null, faceResult: FaceLandmarkerResult | null, now: number) {
+function processResult(
+  result: GestureRecognizerResult | null,
+  faceResult: FaceLandmarkerResult | null,
+  poseResult: PoseLandmarkerResult | null,
+  now: number,
+) {
   context.clearRect(0, 0, canvas.width, canvas.height)
   updateFaceSwapBridge(now)
   drawFaceSwapFrame()
@@ -1640,6 +1860,8 @@ function processResult(result: GestureRecognizerResult | null, faceResult: FaceL
   const topScore = topGesture?.score ?? 0
   const modelGesture = topGesture?.categoryName ?? 'None'
   const landmarks = handLandmarks[0]
+
+  updateAvatar(faceResult, handLandmarks, poseResult, now)
 
   if (faceTrackingEnabled && faceResult) {
     processFaceResult(faceResult, now, detected)
@@ -2051,6 +2273,446 @@ function drawFace(landmarks: NormalizedLandmark[]) {
     lineWidth: 2,
     radius: 3,
   })
+}
+
+function updateAvatar(
+  faceResult: FaceLandmarkerResult | null,
+  handLandmarks: NormalizedLandmark[][],
+  poseResult: PoseLandmarkerResult | null,
+  now: number,
+) {
+  if (!avatarEnabled) {
+    return
+  }
+
+  const rig = ensureAvatarRig()
+  syncAvatarRendererSize()
+
+  if (!rig.currentObject && !avatarLoading) {
+    void ensureAvatarModel()
+  }
+
+  const face = avatarFaceEnabled ? faceResult?.faceLandmarks?.[0] : undefined
+  const pose = avatarTorsoEnabled ? poseResult?.landmarks?.[0] : undefined
+  applyAvatarFace(rig, faceResult, face)
+  applyAvatarTorso(rig, pose)
+  applyAvatarHands(rig, handLandmarks, pose)
+  renderAvatarScene(now)
+}
+
+function ensureAvatarRig() {
+  if (avatarRig) {
+    return avatarRig
+  }
+
+  const scene = new THREE.Scene()
+  const camera = new THREE.PerspectiveCamera(28, 16 / 9, 0.1, 100)
+  camera.position.set(0, 1.18, 3.25)
+  camera.lookAt(0, 1.05, 0)
+
+  const renderer = new THREE.WebGLRenderer({
+    canvas: avatarCanvas,
+    alpha: true,
+    antialias: performanceMode !== 'performance',
+    powerPreference: 'high-performance',
+  })
+  renderer.setClearColor(0x000000, 0)
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, performanceMode === 'performance' ? 1.25 : 2))
+
+  const lightRig = new THREE.Group()
+  const keyLight = new THREE.DirectionalLight(0xffffff, 2.2)
+  keyLight.position.set(1.2, 2.2, 2.4)
+  const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.9)
+  fillLight.position.set(-2.2, 1.2, 1.8)
+  const ambientLight = new THREE.AmbientLight(0xffffff, 1.15)
+  lightRig.add(keyLight, fillLight, ambientLight)
+  scene.add(lightRig)
+
+  const fallbackData = createFallbackAvatar()
+  scene.add(fallbackData.group)
+
+  const loader = new GLTFLoader()
+  loader.register((parser) => new VRMLoaderPlugin(parser))
+
+  avatarRig = {
+    scene,
+    camera,
+    renderer,
+    loader,
+    lightRig,
+    fallback: fallbackData.group,
+    fallbackBones: fallbackData.bones,
+    currentVrm: null,
+    currentObject: fallbackData.group,
+    lastRenderedAt: performance.now(),
+  }
+
+  syncAvatarRendererSize()
+  applyAvatarTransform()
+  renderAvatarScene(performance.now())
+  return avatarRig
+}
+
+function createFallbackAvatar() {
+  const group = new THREE.Group()
+  group.name = 'FallbackAvatar'
+
+  const bones: Record<string, THREE.Object3D> = {}
+  const material = new THREE.MeshStandardMaterial({ color: 0x8dd8c2, roughness: 0.68, metalness: 0.08 })
+  const darkMaterial = new THREE.MeshStandardMaterial({ color: 0x17201d, roughness: 0.72 })
+  const accentMaterial = new THREE.MeshStandardMaterial({ color: 0x2f6ed3, roughness: 0.55 })
+
+  const hips = new THREE.Group()
+  const chest = new THREE.Group()
+  const neck = new THREE.Group()
+  const head = new THREE.Group()
+  hips.position.set(0, 0.35, 0)
+  chest.position.set(0, 0.58, 0)
+  neck.position.set(0, 0.46, 0)
+  head.position.set(0, 0.24, 0)
+  group.add(hips)
+  hips.add(chest)
+  chest.add(neck)
+  neck.add(head)
+
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.42, 0.72, 8, 18), material)
+  torso.rotation.z = Math.PI
+  torso.position.y = 0.1
+  chest.add(torso)
+
+  const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.25, 32, 24), material)
+  headMesh.scale.set(0.9, 1.08, 0.92)
+  head.add(headMesh)
+
+  const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.032, 16, 10), darkMaterial)
+  const rightEye = leftEye.clone()
+  leftEye.position.set(-0.08, 0.04, 0.23)
+  rightEye.position.set(0.08, 0.04, 0.23)
+  head.add(leftEye, rightEye)
+
+  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.018, 0.012), darkMaterial)
+  mouth.position.set(0, -0.105, 0.235)
+  head.add(mouth)
+
+  const createArm = (side: -1 | 1) => {
+    const shoulder = new THREE.Group()
+    const upper = new THREE.Group()
+    const lower = new THREE.Group()
+    const hand = new THREE.Group()
+    shoulder.position.set(side * 0.42, 0.28, 0)
+    upper.position.set(0, 0, 0)
+    lower.position.set(0, -0.34, 0)
+    hand.position.set(0, -0.32, 0)
+    shoulder.add(upper)
+    upper.add(lower)
+    lower.add(hand)
+
+    const upperMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.28, 6, 12), accentMaterial)
+    upperMesh.position.y = -0.18
+    const lowerMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.052, 0.26, 6, 12), accentMaterial)
+    lowerMesh.position.y = -0.16
+    const handMesh = new THREE.Mesh(new THREE.SphereGeometry(0.07, 16, 12), material)
+    upper.add(upperMesh)
+    lower.add(lowerMesh)
+    hand.add(handMesh)
+    chest.add(shoulder)
+
+    return { shoulder, upper, lower, hand }
+  }
+
+  const leftArm = createArm(-1)
+  const rightArm = createArm(1)
+
+  bones.hips = hips
+  bones.chest = chest
+  bones.neck = neck
+  bones.head = head
+  bones.leftUpperArm = leftArm.upper
+  bones.leftLowerArm = leftArm.lower
+  bones.leftHand = leftArm.hand
+  bones.rightUpperArm = rightArm.upper
+  bones.rightLowerArm = rightArm.lower
+  bones.rightHand = rightArm.hand
+  bones.mouth = mouth
+
+  group.position.set(0, -0.35, 0)
+  return { group, bones }
+}
+
+async function ensureAvatarModel() {
+  if (avatarRig?.currentVrm || avatarLoading) {
+    return
+  }
+
+  await loadAvatarModel(defaultAvatarModelUrl, 'Тестовая VRM')
+}
+
+async function loadAvatarModel(url: string, label: string) {
+  const rig = ensureAvatarRig()
+  avatarLoading = true
+  avatarState.textContent = `Загрузка: ${label}`
+
+  try {
+    const gltf = await rig.loader.loadAsync(url)
+    const vrm = gltf.userData.vrm as VRM | undefined
+    const object = vrm?.scene ?? gltf.scene
+
+    if (rig.currentObject && rig.currentObject !== rig.fallback) {
+      rig.scene.remove(rig.currentObject)
+    }
+
+    rig.fallback.visible = false
+    rig.currentVrm = vrm ?? null
+    rig.currentObject = object
+    object.position.set(0, -0.95, 0)
+    object.rotation.set(0, 0, 0)
+    rig.scene.add(object)
+    avatarModelUrl = url
+    applyAvatarTransform()
+    avatarState.textContent = vrm ? `VRM: ${label}` : `Модель: ${label}`
+    trackMetrika('avatar_model_changed', {
+      type: vrm ? 'vrm' : 'gltf',
+      source: url === defaultAvatarModelUrl ? 'sample' : 'upload',
+    })
+  } catch (error) {
+    console.error(error)
+    rig.fallback.visible = true
+    rig.currentVrm = null
+    rig.currentObject = rig.fallback
+    avatarState.textContent = 'Fallback-аватар'
+  } finally {
+    avatarLoading = false
+    renderAvatarScene(performance.now())
+  }
+}
+
+function applyAvatarFace(rig: AvatarRig, faceResult: FaceLandmarkerResult | null, face?: NormalizedLandmark[]) {
+  const idle = performance.now() * 0.001
+  const pose = face ? getHeadPose(face) : null
+  const yaw = pose ? (mirrorMode ? -pose.yaw : pose.yaw) : Math.sin(idle * 0.7) * 0.03
+  const pitch = pose ? pose.pitch : Math.sin(idle * 0.9) * 0.025
+  const roll = face ? getFaceRoll(face) : Math.sin(idle * 0.6) * 0.02
+  const response = getAvatarResponse()
+
+  rotateAvatarBone(rig, VRMHumanBoneName.Head, 'head', {
+    x: clamp(pitch * 0.85, -0.48, 0.48),
+    y: clamp(yaw * 1.05, -0.7, 0.7),
+    z: clamp(roll * 0.55, -0.32, 0.32),
+  }, response)
+  rotateAvatarBone(rig, VRMHumanBoneName.Neck, 'neck', {
+    x: clamp(pitch * 0.24, -0.18, 0.18),
+    y: clamp(yaw * 0.28, -0.24, 0.24),
+    z: clamp(roll * 0.18, -0.16, 0.16),
+  }, response)
+
+  const jawOpen = getBlendshapeScore(faceResult, 'jawOpen')
+  const smile = (getBlendshapeScore(faceResult, 'mouthSmileLeft') + getBlendshapeScore(faceResult, 'mouthSmileRight')) / 2
+  const blinkLeft = getBlendshapeScore(faceResult, 'eyeBlinkLeft')
+  const blinkRight = getBlendshapeScore(faceResult, 'eyeBlinkRight')
+  rig.currentVrm?.expressionManager?.setValue('aa', clamp(jawOpen * 1.25, 0, 1))
+  rig.currentVrm?.expressionManager?.setValue('happy', clamp(smile * 1.2, 0, 1))
+  rig.currentVrm?.expressionManager?.setValue('blinkLeft', clamp(blinkLeft, 0, 1))
+  rig.currentVrm?.expressionManager?.setValue('blinkRight', clamp(blinkRight, 0, 1))
+
+  const fallbackMouth = rig.fallbackBones.mouth
+  if (fallbackMouth) {
+    fallbackMouth.scale.y = lerp(fallbackMouth.scale.y, 1 + jawOpen * 5.5 + smile * 1.4, response)
+    fallbackMouth.scale.x = lerp(fallbackMouth.scale.x, 1 + smile * 1.9, response)
+  }
+}
+
+function applyAvatarTorso(rig: AvatarRig, pose?: NormalizedLandmark[]) {
+  const response = getAvatarResponse()
+  const leftShoulder = pose?.[11]
+  const rightShoulder = pose?.[12]
+  const leftHip = pose?.[23]
+  const rightHip = pose?.[24]
+
+  if (!leftShoulder || !rightShoulder) {
+    rotateAvatarBone(rig, VRMHumanBoneName.Chest, 'chest', { x: 0, y: 0, z: 0 }, response * 0.35)
+    return
+  }
+
+  const shoulderCenter = midpoint(leftShoulder, rightShoulder)
+  const hipCenter = leftHip && rightHip ? midpoint(leftHip, rightHip) : { ...shoulderCenter, y: shoulderCenter.y + 0.34 }
+  const shoulderSlope = (rightShoulder.y - leftShoulder.y) * (mirrorMode ? -1 : 1)
+  const torsoLean = (shoulderCenter.x - hipCenter.x) * (mirrorMode ? -1 : 1)
+  const shoulderDepth = (rightShoulder.z ?? 0) - (leftShoulder.z ?? 0)
+
+  rotateAvatarBone(rig, VRMHumanBoneName.Chest, 'chest', {
+    x: clamp((shoulderCenter.y - hipCenter.y + 0.32) * 1.2, -0.22, 0.26),
+    y: clamp(shoulderDepth * 1.3, -0.34, 0.34),
+    z: clamp(torsoLean * 1.3 + shoulderSlope * 1.8, -0.34, 0.34),
+  }, response)
+  rotateAvatarBone(rig, VRMHumanBoneName.Spine, 'hips', {
+    x: 0,
+    y: clamp(shoulderDepth * 0.45, -0.16, 0.16),
+    z: clamp(torsoLean * 0.45, -0.16, 0.16),
+  }, response)
+}
+
+function applyAvatarHands(rig: AvatarRig, hands: NormalizedLandmark[][], pose?: NormalizedLandmark[]) {
+  if (!avatarHandsEnabled) {
+    return
+  }
+
+  const response = getAvatarResponse()
+  applyAvatarArmFromPose(rig, 'left', pose?.[11], pose?.[13], pose?.[15], response)
+  applyAvatarArmFromPose(rig, 'right', pose?.[12], pose?.[14], pose?.[16], response)
+
+  if (!pose && hands.length > 0) {
+    for (const hand of hands.slice(0, 2)) {
+      const center = handCenter(hand)
+      const isLeft = center.x < 0.5
+      applyAvatarArmFromHand(rig, isLeft ? 'left' : 'right', center, response)
+    }
+  }
+}
+
+function applyAvatarArmFromPose(
+  rig: AvatarRig,
+  side: 'left' | 'right',
+  shoulder: NormalizedLandmark | undefined,
+  elbow: NormalizedLandmark | undefined,
+  wrist: NormalizedLandmark | undefined,
+  response: number,
+) {
+  if (!shoulder || !elbow || !wrist) {
+    return
+  }
+
+  const sideSign = side === 'left' ? -1 : 1
+  const mirrorSign = mirrorMode ? -1 : 1
+  const upperDx = (elbow.x - shoulder.x) * mirrorSign
+  const upperDy = elbow.y - shoulder.y
+  const lowerDx = (wrist.x - elbow.x) * mirrorSign
+  const lowerDy = wrist.y - elbow.y
+  const wristDepth = wrist.z ?? 0
+  const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
+  const lowerName = side === 'left' ? VRMHumanBoneName.LeftLowerArm : VRMHumanBoneName.RightLowerArm
+  const handName = side === 'left' ? VRMHumanBoneName.LeftHand : VRMHumanBoneName.RightHand
+
+  rotateAvatarBone(rig, upperName, `${side}UpperArm`, {
+    x: clamp(-upperDy * 2.25 + 0.16, -1.25, 1.15),
+    y: clamp(sideSign * wristDepth * 1.5, -0.7, 0.7),
+    z: clamp(sideSign * (0.82 + upperDx * 4.2), -1.55, 1.55),
+  }, response)
+  rotateAvatarBone(rig, lowerName, `${side}LowerArm`, {
+    x: clamp(-lowerDy * 2.3, -1.35, 1.1),
+    y: 0,
+    z: clamp(sideSign * lowerDx * 4.1, -1.3, 1.3),
+  }, response)
+  rotateAvatarBone(rig, handName, `${side}Hand`, {
+    x: clamp(-lowerDy * 1.4, -0.9, 0.9),
+    y: clamp(sideSign * lowerDx * 1.5, -0.8, 0.8),
+    z: clamp(sideSign * lowerDx * 1.8, -0.9, 0.9),
+  }, response)
+}
+
+function applyAvatarArmFromHand(
+  rig: AvatarRig,
+  side: 'left' | 'right',
+  center: NormalizedLandmark,
+  response: number,
+) {
+  const sideSign = side === 'left' ? -1 : 1
+  const mirrorSign = mirrorMode ? -1 : 1
+  const x = (center.x - 0.5) * mirrorSign
+  const y = center.y - 0.5
+  const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
+  const lowerName = side === 'left' ? VRMHumanBoneName.LeftLowerArm : VRMHumanBoneName.RightLowerArm
+
+  rotateAvatarBone(rig, upperName, `${side}UpperArm`, {
+    x: clamp(-y * 2.1, -1.15, 1.1),
+    y: 0,
+    z: clamp(sideSign * (0.9 + x * 2.5), -1.45, 1.45),
+  }, response)
+  rotateAvatarBone(rig, lowerName, `${side}LowerArm`, {
+    x: clamp(-y * 1.4, -1.1, 1.1),
+    y: 0,
+    z: clamp(sideSign * x * 2.2, -1.1, 1.1),
+  }, response)
+}
+
+function rotateAvatarBone(
+  rig: AvatarRig,
+  vrmBone: VRMHumanBoneName,
+  fallbackBone: string,
+  rotation: { x: number; y: number; z: number },
+  response: number,
+) {
+  const target = rig.currentVrm?.humanoid.getNormalizedBoneNode(vrmBone) ?? rig.fallbackBones[fallbackBone]
+
+  if (!target) {
+    return
+  }
+
+  target.rotation.x = lerp(target.rotation.x, rotation.x, response)
+  target.rotation.y = lerp(target.rotation.y, rotation.y, response)
+  target.rotation.z = lerp(target.rotation.z, rotation.z, response)
+}
+
+function renderAvatarScene(now: number) {
+  const rig = avatarRig
+
+  if (!rig || !avatarEnabled) {
+    return
+  }
+
+  const delta = clamp((now - rig.lastRenderedAt) / 1000, 0.001, 0.08)
+  rig.lastRenderedAt = now
+  rig.currentVrm?.update(delta)
+  rig.renderer.render(rig.scene, rig.camera)
+}
+
+function syncAvatarRendererSize() {
+  const rig = avatarRig
+
+  if (!rig) {
+    return
+  }
+
+  const width = canvas.width || video.videoWidth || 1280
+  const height = canvas.height || video.videoHeight || 720
+
+  if (avatarCanvas.width !== width || avatarCanvas.height !== height) {
+    rig.renderer.setSize(width, height, false)
+    rig.camera.aspect = width / Math.max(height, 1)
+    rig.camera.updateProjectionMatrix()
+  }
+}
+
+function applyAvatarTransform() {
+  const rig = avatarRig
+  const object = rig?.currentObject
+
+  if (!rig || !object) {
+    return
+  }
+
+  const scale = avatarScale / 100
+  object.scale.setScalar(scale)
+  object.position.y = object === rig.fallback ? -0.35 + avatarHeight / 100 : -0.95 + avatarHeight / 100
+  renderAvatarScene(performance.now())
+}
+
+function getAvatarResponse() {
+  return 1 - avatarSmoothing / 120
+}
+
+function getBlendshapeScore(result: FaceLandmarkerResult | null, name: string) {
+  return result?.faceBlendshapes?.[0]?.categories.find((category) => category.categoryName === name)?.score ?? 0
+}
+
+function getFaceRoll(face: NormalizedLandmark[]) {
+  const left = face[33] ?? face[263]
+  const right = face[263] ?? face[33]
+
+  if (!left || !right) {
+    return 0
+  }
+
+  return Math.atan2(right.y - left.y, right.x - left.x)
 }
 
 function drawFaceMask(landmarks: NormalizedLandmark[], layer: FaceMaskLayer | null = maskLayer) {
@@ -3337,6 +3999,61 @@ function setHudVisible(next: boolean) {
   hudState.textContent = next ? 'HUD включен' : 'HUD скрыт'
 }
 
+function setAvatarEnabled(next: boolean) {
+  avatarEnabled = next
+  localStorage.setItem('xedoc-hands-avatar-enabled', String(next))
+  avatarToggle.checked = next
+  stage.classList.toggle('is-avatar-mode', next)
+  avatarState.textContent = next ? avatarState.textContent.replace('Выключен', 'Аватар включен') : 'Выключен'
+
+  if (next) {
+    ensureAvatarRig()
+    syncAvatarRendererSize()
+    renderAvatarScene(performance.now())
+  }
+}
+
+function setAvatarFaceEnabled(next: boolean) {
+  avatarFaceEnabled = next
+  localStorage.setItem('xedoc-hands-avatar-face', next ? 'on' : 'off')
+  avatarFaceToggle.checked = next
+}
+
+function setAvatarHandsEnabled(next: boolean) {
+  avatarHandsEnabled = next
+  localStorage.setItem('xedoc-hands-avatar-hands', next ? 'on' : 'off')
+  avatarHandsToggle.checked = next
+}
+
+function setAvatarTorsoEnabled(next: boolean) {
+  avatarTorsoEnabled = next
+  localStorage.setItem('xedoc-hands-avatar-torso', next ? 'on' : 'off')
+  avatarTorsoToggle.checked = next
+}
+
+function setAvatarSmoothing(next: number) {
+  avatarSmoothing = clamp(Math.round(next), 0, 90)
+  localStorage.setItem('xedoc-hands-avatar-smoothing', String(avatarSmoothing))
+  avatarSmoothingSlider.value = String(avatarSmoothing)
+  avatarSmoothingValue.textContent = `${avatarSmoothing}%`
+}
+
+function setAvatarScale(next: number) {
+  avatarScale = clamp(Math.round(next), 65, 145)
+  localStorage.setItem('xedoc-hands-avatar-scale', String(avatarScale))
+  avatarScaleSlider.value = String(avatarScale)
+  avatarScaleValue.textContent = `${avatarScale}%`
+  applyAvatarTransform()
+}
+
+function setAvatarHeight(next: number) {
+  avatarHeight = clamp(Math.round(next), -60, 60)
+  localStorage.setItem('xedoc-hands-avatar-height', String(avatarHeight))
+  avatarHeightSlider.value = String(avatarHeight)
+  avatarHeightValue.textContent = signedValue(avatarHeight)
+  applyAvatarTransform()
+}
+
 function setPerformanceMode(next: PerformanceMode) {
   performanceMode = next
   localStorage.setItem('xedoc-hands-performance-mode', next)
@@ -3615,6 +4332,7 @@ function syncCanvasSize() {
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     stage.style.setProperty('--camera-aspect', `${video.videoWidth} / ${video.videoHeight}`)
+    syncAvatarRendererSize()
   }
 }
 
@@ -3656,6 +4374,24 @@ function isMobileDevice() {
   const isCompactTouch = window.matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) <= 820
 
   return isAppleMobile || isCompactTouch
+}
+
+function readAvatarSmoothing() {
+  const raw = localStorage.getItem('xedoc-hands-avatar-smoothing')
+  const saved = raw === null ? Number.NaN : Number(raw)
+  return Number.isFinite(saved) ? clamp(Math.round(saved), 0, 90) : 35
+}
+
+function readAvatarScale() {
+  const raw = localStorage.getItem('xedoc-hands-avatar-scale')
+  const saved = raw === null ? Number.NaN : Number(raw)
+  return Number.isFinite(saved) ? clamp(Math.round(saved), 65, 145) : 100
+}
+
+function readAvatarHeight() {
+  const raw = localStorage.getItem('xedoc-hands-avatar-height')
+  const saved = raw === null ? Number.NaN : Number(raw)
+  return Number.isFinite(saved) ? clamp(Math.round(saved), -60, 60) : 0
 }
 
 function readMaskStability() {
@@ -4038,6 +4774,10 @@ function midpoint(a: NormalizedLandmark, b: NormalizedLandmark): NormalizedLandm
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
+}
+
+function lerp(from: number, to: number, amount: number) {
+  return from + (to - from) * clamp(amount, 0, 1)
 }
 
 function round(value: number) {

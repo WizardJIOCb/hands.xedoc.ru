@@ -74,6 +74,21 @@ https://hands.xedoc.ru/?autostart=1
 
 Режим `Рука поверх` вырезает из слоя маски область найденной руки, поэтому настоящая рука из камеры остается поверх лица. Он использует трекинг рук и работает даже когда линии рук на картинке скрыты.
 
+## 3D аватар
+
+Панель `Аватар` включает отдельный браузерный режим VTuber/подкастера. Камера продолжает работать как датчик, но на сцене вместо видео отображается 3D-модель.
+
+Что есть сейчас:
+
+- загрузка своей `.vrm` / `.glb` модели;
+- кнопка `Тестовая` для sample VRM из репозитория `pixiv/three-vrm`;
+- fallback-манекен, если VRM не загрузился;
+- трекинг головы и мимики по Face Landmarker;
+- трекинг рук и верхней части тела по Hands/Pose Landmarker;
+- настройки: голова/мимика, руки, торс, сглаживание, масштаб и высота.
+
+Для кастомного орка/подкастера лучше готовить модель в VRM: так браузерный риг сможет управлять костями humanoid и выражениями лица.
+
 ## Webhook
 
 При включенном webhook каждое событие отправляется `POST`-запросом в JSON-формате на указанный endpoint.
@@ -113,6 +128,7 @@ http://127.0.0.1:8787/gesture
 - `face_count_changed` - изменение количества лиц в кадре. В параметрах есть `count`, `maxCount`, `multiFace`, `faceLimit`, `maskEnabled`, `maskCount`.
 - `mask_setting_changed` - изменение настроек маски: стабилизация, мягкий край, рука поверх, цвет лица, яркость, насыщенность, контраст, температура и оттенок.
 - `mask_toggled`, `mask_mode_changed`, `multi_face_toggled`, `face_tracking_toggled`, `hand_tracking_toggled`, `hand_markers_toggled` - ключевые переключатели интерфейса.
+- `avatar_toggled`, `avatar_model_changed`, `avatar_setting_changed` - включение 3D-аватара, смена модели и настройки аватара.
 - `performance_mode_changed`, `camera_started`, `camera_stopped`, `camera_error` - камера и режим производительности.
 - `preset_changed`, `webhook_toggled`, `webhook_endpoint_changed`, `faceswap_endpoint_changed`, `faceswap_bridge_status` - интеграции и режимы управления.
 
