@@ -4551,6 +4551,10 @@ function renderGestureGrid() {
 
   actionHint.textContent = `${presets[currentPreset].title}: ${enabledCount} из ${gestureDefinitions.length} команд`
 
+  gestureGrid.querySelectorAll<HTMLElement>('.gesture-check').forEach((label) => {
+    label.addEventListener('click', (event) => event.stopPropagation())
+  })
+
   gestureGrid.querySelectorAll<HTMLInputElement>('.gesture-enabled').forEach((input) => {
     input.addEventListener('click', (event) => event.stopPropagation())
     input.addEventListener('change', () => {
