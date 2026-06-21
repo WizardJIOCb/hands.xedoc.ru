@@ -2874,28 +2874,28 @@ function applyAvatarArmFromHandLandmarks(
   const fingerVectorY = middleTip.y - middleBase.y
   const palmAngle = Math.atan2(palmVectorY, palmVectorX)
   const fingerAngle = Math.atan2(fingerVectorY, fingerVectorX)
-  const palmUp = clamp((0.58 - palmCenter.y) * 2.15, -0.28, 0.96)
-  const sideReach = clamp(Math.abs(x) * 2.25, 0, 1)
+  const verticalReach = clamp((0.72 - palmCenter.y) * 2.1, -0.12, 1.2)
+  const sideReach = clamp(Math.abs(x) * 2.6, 0, 1.18)
   const forwardDepth = clamp(-palmCenter.z * 1.25, -0.38, 0.52)
   const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
   const lowerName = side === 'left' ? VRMHumanBoneName.LeftLowerArm : VRMHumanBoneName.RightLowerArm
   const handName = side === 'left' ? VRMHumanBoneName.LeftHand : VRMHumanBoneName.RightHand
 
   rotateAvatarBone(rig, upperName, `${side}UpperArm`, {
-    x: clamp(0.12 + palmUp * 1.05 - y * 0.72, -0.55, 1.18),
-    y: clamp(sideSign * (forwardDepth * 0.8 + x * 0.28), -0.62, 0.62),
-    z: clamp(sideSign * (0.36 + sideReach * 0.86 + x * 0.62), -1.22, 1.22),
-  }, response * 0.92)
+    x: clamp(0.18 - verticalReach * 0.86 - y * 0.28, -1.18, 0.58),
+    y: clamp(sideSign * (forwardDepth * 0.9 + x * 0.22), -0.7, 0.7),
+    z: clamp(sideSign * (0.28 + sideReach * 1.05 + x * 0.5), -1.45, 1.45),
+  }, response)
   rotateAvatarBone(rig, lowerName, `${side}LowerArm`, {
-    x: clamp(0.24 + palmUp * 0.86 - y * 0.5, -0.55, 1.05),
+    x: clamp(-0.18 - verticalReach * 1.08 + y * 0.24, -1.28, 0.34),
     y: clamp(sideSign * forwardDepth * 0.55, -0.48, 0.48),
-    z: clamp(sideSign * (x * 1.18 + sideReach * 0.24), -0.92, 0.92),
-  }, response * 0.9)
+    z: clamp(sideSign * (x * 1.35 + sideReach * 0.34), -1.08, 1.08),
+  }, response)
   rotateAvatarBone(rig, handName, `${side}Hand`, {
-    x: clamp(-palmVectorY * 2.4 + palmUp * 0.36, -0.72, 0.72),
+    x: clamp(-0.12 - palmVectorY * 2.2 - verticalReach * 0.26, -0.9, 0.62),
     y: clamp(sideSign * forwardDepth * 0.95, -0.62, 0.62),
     z: clamp(sideSign * normalizeAngle(fingerAngle - palmAngle) * 0.58, -0.68, 0.68),
-  }, response * 0.82)
+  }, response)
 }
 
 function applyAvatarHandLandmarks(
