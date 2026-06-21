@@ -2908,10 +2908,9 @@ function applyAvatarTorso(rig: AvatarRig, pose?: NormalizedLandmark[]) {
 }
 
 function applyAvatarHands(rig: AvatarRig, hands: NormalizedLandmark[][], pose?: NormalizedLandmark[]) {
-  if (!avatarHandsEnabled) {
-    applyAvatarRestArms(rig, getAvatarResponse() * 0.45)
-    applyAvatarRestFingers(rig, 'left', getAvatarResponse() * 0.35)
-    applyAvatarRestFingers(rig, 'right', getAvatarResponse() * 0.35)
+  if (!avatarHandsEnabled || !handTrackingEnabled) {
+    const response = getAvatarResponse()
+    applyAvatarRestArms(rig, response * 0.52)
     return
   }
 
@@ -3459,19 +3458,19 @@ function applyAvatarRestArm(rig: AvatarRig, side: AvatarSide, response: number) 
   const handName = side === 'left' ? VRMHumanBoneName.LeftHand : VRMHumanBoneName.RightHand
 
   rotateAvatarBone(rig, upperName, `${side}UpperArm`, {
-    x: 0.34,
-    y: 0,
-    z: sideSign * 0.58,
+    x: 0.22,
+    y: sideSign * 0.06,
+    z: sideSign * 1.08,
   }, response)
   rotateAvatarBone(rig, lowerName, `${side}LowerArm`, {
-    x: 0.22,
-    y: 0,
-    z: sideSign * 0.22,
+    x: 0.42,
+    y: -sideSign * 0.08,
+    z: sideSign * 0.08,
   }, response)
   rotateAvatarBone(rig, handName, `${side}Hand`, {
-    x: 0,
+    x: 0.04,
     y: 0,
-    z: sideSign * 0.08,
+    z: sideSign * 0.03,
   }, response)
 }
 
