@@ -678,7 +678,7 @@ app.innerHTML = `
                 <label class="input-label" for="avatarHeight">Высота</label>
                 <strong id="avatarHeightValue">0</strong>
               </div>
-              <input id="avatarHeight" class="range-input" type="range" min="-120" max="120" step="1" value="0" />
+              <input id="avatarHeight" class="range-input" type="range" min="-300" max="300" step="1" value="0" />
             </div>
             <div class="mask-stability">
               <div class="mask-stability-head">
@@ -689,6 +689,17 @@ app.innerHTML = `
               <div class="range-captions">
                 <span>Влево</span>
                 <span>Вправо</span>
+              </div>
+            </div>
+            <div class="mask-stability">
+              <div class="mask-stability-head">
+                <label class="input-label" for="avatarHeadPitchScale">Наклон вверх/вниз</label>
+                <strong id="avatarHeadPitchScaleValue">100%</strong>
+              </div>
+              <input id="avatarHeadPitchScale" class="range-input" type="range" min="50" max="250" step="5" value="100" />
+              <div class="range-captions">
+                <span>Меньше</span>
+                <span>Больше</span>
               </div>
             </div>
           </div>
@@ -1046,6 +1057,8 @@ const avatarHeightSlider = getElement<HTMLInputElement>('avatarHeight')
 const avatarHeightValue = getElement<HTMLElement>('avatarHeightValue')
 const avatarHeadRollOffsetSlider = getElement<HTMLInputElement>('avatarHeadRollOffset')
 const avatarHeadRollOffsetValue = getElement<HTMLElement>('avatarHeadRollOffsetValue')
+const avatarHeadPitchScaleSlider = getElement<HTMLInputElement>('avatarHeadPitchScale')
+const avatarHeadPitchScaleValue = getElement<HTMLElement>('avatarHeadPitchScaleValue')
 const currentGesture = getElement<HTMLElement>('currentGesture')
 const fpsValue = getElement<HTMLElement>('fpsValue')
 const handCount = getElement<HTMLElement>('handCount')
@@ -1156,6 +1169,7 @@ let avatarSmoothing = readAvatarSmoothing()
 let avatarScale = readAvatarScale()
 let avatarHeight = readAvatarHeight()
 let avatarHeadRollOffset = readAvatarHeadRollOffset()
+let avatarHeadPitchScale = readAvatarHeadPitchScale()
 let avatarBackgroundImage = readAvatarBackgroundImage()
 let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
 let maskMode: MaskMode = readMaskMode()
@@ -1229,6 +1243,7 @@ setAvatarSmoothing(avatarSmoothing)
 setAvatarScale(avatarScale)
 setAvatarHeight(avatarHeight)
 setAvatarHeadRollOffset(avatarHeadRollOffset)
+setAvatarHeadPitchScale(avatarHeadPitchScale)
 setAvatarBackgroundImage(avatarBackgroundImage)
 setAvatarEnabled(avatarEnabled)
 setMaskMode(maskMode)
@@ -1369,6 +1384,14 @@ avatarHeadRollOffsetSlider.addEventListener('input', () => {
 
 avatarHeadRollOffsetSlider.addEventListener('change', () => {
   trackMetrika('avatar_setting_changed', { setting: 'headRollOffset', value: avatarHeadRollOffset })
+})
+
+avatarHeadPitchScaleSlider.addEventListener('input', () => {
+  setAvatarHeadPitchScale(Number(avatarHeadPitchScaleSlider.value))
+})
+
+avatarHeadPitchScaleSlider.addEventListener('change', () => {
+  trackMetrika('avatar_setting_changed', { setting: 'headPitchScale', value: avatarHeadPitchScale })
 })
 
 avatarSampleButton.addEventListener('click', () => {
@@ -2545,7 +2568,7 @@ function applyAvatarFace(rig: AvatarRig, faceResult: FaceLandmarkerResult | null
   const idle = performance.now() * 0.001
   const pose = face ? getHeadPose(face) : null
   const yaw = pose ? (mirrorMode ? -pose.yaw : pose.yaw) : Math.sin(idle * 0.7) * 0.03
-  const pitch = pose ? pose.pitch : Math.sin(idle * 0.9) * 0.025
+  const pitch = (pose ? pose.pitch : Math.sin(idle * 0.9) * 0.025) * (avatarHeadPitchScale / 100)
   const rollOffset = (avatarHeadRollOffset * Math.PI) / 180
   const roll = (face ? getFaceRoll(face) : Math.sin(idle * 0.6) * 0.02) + rollOffset
   const response = getAvatarResponse()
@@ -2563,12 +2586,14 @@ function applyAvatarFace(rig: AvatarRig, faceResult: FaceLandmarkerResult | null
 
   const jawOpen = getBlendshapeScore(faceResult, 'jawOpen')
   const smile = (getBlendshapeScore(faceResult, 'mouthSmileLeft') + getBlendshapeScore(faceResult, 'mouthSmileRight')) / 2
-  const blinkLeft = getBlendshapeScore(faceResult, 'eyeBlinkLeft')
-  const blinkRight = getBlendshapeScore(faceResult, 'eyeBlinkRight')
+  const blinkLeft = clamp(getBlendshapeScore(faceResult, 'eyeBlinkLeft') * 1.9, 0, 1)
+  const blinkRight = clamp(getBlendshapeScore(faceResult, 'eyeBlinkRight') * 1.9, 0, 1)
+  const blink = clamp(Math.max(blinkLeft, blinkRight) * 1.15, 0, 1)
   rig.currentVrm?.expressionManager?.setValue('aa', clamp(jawOpen * 1.25, 0, 1))
   rig.currentVrm?.expressionManager?.setValue('happy', clamp(smile * 1.2, 0, 1))
-  rig.currentVrm?.expressionManager?.setValue('blinkLeft', clamp(blinkLeft, 0, 1))
-  rig.currentVrm?.expressionManager?.setValue('blinkRight', clamp(blinkRight, 0, 1))
+  rig.currentVrm?.expressionManager?.setValue('blink', blink)
+  rig.currentVrm?.expressionManager?.setValue('blinkLeft', blinkLeft)
+  rig.currentVrm?.expressionManager?.setValue('blinkRight', blinkRight)
 
   const fallbackMouth = rig.fallbackBones.mouth
   if (fallbackMouth) {
@@ -4216,7 +4241,7 @@ function setAvatarScale(next: number) {
 }
 
 function setAvatarHeight(next: number) {
-  avatarHeight = clamp(Math.round(next), -120, 120)
+  avatarHeight = clamp(Math.round(next), -300, 300)
   localStorage.setItem('xedoc-hands-avatar-height', String(avatarHeight))
   avatarHeightSlider.value = String(avatarHeight)
   avatarHeightValue.textContent = signedValue(avatarHeight)
@@ -4228,6 +4253,13 @@ function setAvatarHeadRollOffset(next: number) {
   localStorage.setItem('xedoc-hands-avatar-head-roll-offset', String(avatarHeadRollOffset))
   avatarHeadRollOffsetSlider.value = String(avatarHeadRollOffset)
   avatarHeadRollOffsetValue.textContent = `${signedValue(avatarHeadRollOffset)}°`
+}
+
+function setAvatarHeadPitchScale(next: number) {
+  avatarHeadPitchScale = clamp(Math.round(next), 50, 250)
+  localStorage.setItem('xedoc-hands-avatar-head-pitch-scale', String(avatarHeadPitchScale))
+  avatarHeadPitchScaleSlider.value = String(avatarHeadPitchScale)
+  avatarHeadPitchScaleValue.textContent = `${avatarHeadPitchScale}%`
 }
 
 function setAvatarBackgroundImage(next: string | null) {
@@ -4586,13 +4618,19 @@ function readAvatarScale() {
 function readAvatarHeight() {
   const raw = localStorage.getItem('xedoc-hands-avatar-height')
   const saved = raw === null ? Number.NaN : Number(raw)
-  return Number.isFinite(saved) ? clamp(Math.round(saved), -120, 120) : 0
+  return Number.isFinite(saved) ? clamp(Math.round(saved), -300, 300) : 0
 }
 
 function readAvatarHeadRollOffset() {
   const raw = localStorage.getItem('xedoc-hands-avatar-head-roll-offset')
   const saved = raw === null ? Number.NaN : Number(raw)
   return Number.isFinite(saved) ? clamp(Math.round(saved), -30, 30) : 0
+}
+
+function readAvatarHeadPitchScale() {
+  const raw = localStorage.getItem('xedoc-hands-avatar-head-pitch-scale')
+  const saved = raw === null ? Number.NaN : Number(raw)
+  return Number.isFinite(saved) ? clamp(Math.round(saved), 50, 250) : 100
 }
 
 function readAvatarBackgroundImage() {
