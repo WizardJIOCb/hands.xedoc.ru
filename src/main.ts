@@ -2918,6 +2918,7 @@ function applyAvatarArmFromHandLandmarks(
   const displayWristX = toAvatarDisplayX(wrist.x)
   const displayMiddleBaseX = toAvatarDisplayX(middleBase.x)
   const displayMiddleTipX = toAvatarDisplayX(middleTip.x)
+  const poseArm = getAvatarPoseArmForHand(pose, displayPalmX)
   const relativeX = clamp((displayPalmX - frame.x) / frame.width, -1.9, 1.9)
   const relativeY = clamp((frame.y - palmCenter.y - getAvatarHandHeightOffset() * 0.42) / frame.width, -1.1, 2.3)
   const screenSideSign = displayPalmX < frame.x ? -1 : 1
@@ -2931,7 +2932,8 @@ function applyAvatarArmFromHandLandmarks(
   const sideReach = clamp(Math.abs(relativeX), 0, 1.28)
   const raise = clamp((verticalReach + 0.08) / 1.18, 0, 1.18)
   const closeToTorso = 1 - clamp(sideReach / 1.05, 0, 1)
-  const elbowBend = clamp(0.2 + raise * 0.42 + closeToTorso * 0.62, 0.12, 1.08)
+  const poseElbowBend = poseArm ? getAvatarPoseElbowBend(poseArm.shoulder, poseArm.elbow, poseArm.wrist) : 0
+  const elbowBend = clamp(0.18 + raise * 0.28 + closeToTorso * 0.34 + poseElbowBend * 0.72, 0.12, 1.18)
   const shoulderOut = clamp(0.62 - raise * 1.16 + sideReach * 0.14, -0.62, 0.74)
   const forwardDepth = clamp(-palmCenter.z * 1.25, -0.38, 0.52)
   const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
@@ -2953,6 +2955,43 @@ function applyAvatarArmFromHandLandmarks(
     y: clamp(sideSign * forwardDepth * 0.95, -0.62, 0.62),
     z: clamp(sideSign * normalizeAngle(fingerAngle - palmAngle) * 0.58, -0.68, 0.68),
   }, response)
+}
+
+function getAvatarPoseArmForHand(pose: NormalizedLandmark[] | undefined, displayPalmX: number) {
+  const candidates = [
+    {
+      shoulder: pose?.[11],
+      elbow: pose?.[13],
+      wrist: pose?.[15],
+    },
+    {
+      shoulder: pose?.[12],
+      elbow: pose?.[14],
+      wrist: pose?.[16],
+    },
+  ].filter((candidate) => isReliablePoseChain(candidate.shoulder, candidate.elbow, candidate.wrist))
+
+  if (candidates.length === 0) {
+    return null
+  }
+
+  return candidates.reduce((best, candidate) => {
+    const bestDistance = Math.abs(toAvatarDisplayX(best.wrist!.x) - displayPalmX)
+    const candidateDistance = Math.abs(toAvatarDisplayX(candidate.wrist!.x) - displayPalmX)
+    return candidateDistance < bestDistance ? candidate : best
+  })
+}
+
+function getAvatarPoseElbowBend(
+  shoulder: NormalizedLandmark | undefined,
+  elbow: NormalizedLandmark | undefined,
+  wrist: NormalizedLandmark | undefined,
+) {
+  if (!shoulder || !elbow || !wrist) {
+    return 0
+  }
+
+  return clamp((Math.PI - landmarkAngle(shoulder, elbow, wrist)) / 1.15, 0, 1)
 }
 
 function applyAvatarHandLandmarks(

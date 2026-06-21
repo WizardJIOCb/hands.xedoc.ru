@@ -284,8 +284,7 @@ svg {
   transform: scaleX(-1);
 }
 
-.stage.is-avatar-mode #cameraVideo,
-.stage.is-avatar-mode #overlayCanvas {
+.stage.is-avatar-mode #cameraVideo {
   opacity: 0;
 }
 
