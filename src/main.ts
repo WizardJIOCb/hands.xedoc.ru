@@ -207,6 +207,20 @@ const poseModelPath =
   'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task'
 const defaultAvatarModelUrl =
   'https://raw.githubusercontent.com/pixiv/three-vrm/master/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm'
+const avatarModelPresets = [
+  {
+    id: 'twist',
+    label: 'Текущая',
+    name: 'Тестовая VRM',
+    url: defaultAvatarModelUrl,
+  },
+  {
+    id: 'alicia',
+    label: 'Alicia',
+    name: 'AliciaSolid VRM',
+    url: 'https://raw.githubusercontent.com/vrm-c/UniVRM/master/Tests/Models/Alicia_vrm-0.51/AliciaSolid_vrm-0.51.vrm',
+  },
+] as const
 
 const usedIcons = {
   ArrowDown,
@@ -632,6 +646,15 @@ app.innerHTML = `
             </label>
             <input id="avatarFile" class="file-input" type="file" accept=".vrm,.glb,model/gltf-binary" />
             <button class="mask-mode-button mask-sample-button" id="avatarSampleButton" type="button">Тестовая</button>
+          </div>
+          <div class="avatar-model-list" aria-label="Модели аватара">
+            ${avatarModelPresets.map((model) => `
+              <button
+                class="mask-mode-button avatar-model-button"
+                type="button"
+                data-avatar-model="${model.id}"
+              >${model.label}</button>
+            `).join('')}
           </div>
           <div class="mask-control avatar-control avatar-bg-control">
             <label class="file-button" for="avatarBackgroundFile">
@@ -1074,6 +1097,7 @@ const performanceModeState = getElement<HTMLElement>('performanceModeState')
 const avatarToggle = getElement<HTMLInputElement>('avatarToggle')
 const avatarFile = getElement<HTMLInputElement>('avatarFile')
 const avatarSampleButton = getElement<HTMLButtonElement>('avatarSampleButton')
+const avatarModelButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-avatar-model]'))
 const avatarBackgroundFile = getElement<HTMLInputElement>('avatarBackgroundFile')
 const avatarBackgroundClearButton = getElement<HTMLButtonElement>('avatarBackgroundClearButton')
 const avatarState = getElement<HTMLElement>('avatarState')
@@ -1452,6 +1476,18 @@ avatarHeadPitchScaleSlider.addEventListener('change', () => {
 avatarSampleButton.addEventListener('click', () => {
   void loadAvatarModel(defaultAvatarModelUrl, 'Тестовая VRM')
 })
+
+for (const button of avatarModelButtons) {
+  button.addEventListener('click', () => {
+    const preset = avatarModelPresets.find((model) => model.id === button.dataset.avatarModel)
+
+    if (!preset) {
+      return
+    }
+
+    void loadAvatarModel(preset.url, preset.name)
+  })
+}
 
 avatarFile.addEventListener('change', () => {
   const file = avatarFile.files?.[0]
@@ -2610,17 +2646,19 @@ async function loadAvatarModel(url: string, label: string) {
     rig.scene.add(object)
     prepareAvatarObjectFrame(object, object === rig.fallback)
     avatarModelUrl = url
+    updateAvatarModelButtons(url)
     applyAvatarTransform()
     avatarState.textContent = vrm ? `VRM: ${label}` : `Модель: ${label}`
     trackMetrika('avatar_model_changed', {
       type: vrm ? 'vrm' : 'gltf',
-      source: url === defaultAvatarModelUrl ? 'sample' : 'upload',
+      source: avatarModelPresets.some((preset) => preset.url === url) ? 'preset' : 'upload',
     })
   } catch (error) {
     console.error(error)
     rig.fallback.visible = true
     rig.currentVrm = null
     rig.currentObject = rig.fallback
+    updateAvatarModelButtons(null)
     avatarState.textContent = 'Fallback-аватар'
   } finally {
     avatarLoading = false
@@ -2851,7 +2889,13 @@ function getAvatarHandDisplayCenter(landmarks: NormalizedLandmark[]) {
 }
 
 function getAvatarSideForDisplayX(x: number): AvatarSide {
-  return x < 0.5 ? 'left' : 'right'
+  const visibleSide: AvatarSide = x < 0.5 ? 'left' : 'right'
+
+  if (mirrorMode) {
+    return visibleSide
+  }
+
+  return visibleSide === 'left' ? 'right' : 'left'
 }
 
 function getAvatarHandTrackingFrame(pose: NormalizedLandmark[] | undefined) {
@@ -4832,6 +4876,15 @@ function setAvatarHeadPitchScale(next: number) {
   localStorage.setItem('xedoc-hands-avatar-head-pitch-scale', String(avatarHeadPitchScale))
   avatarHeadPitchScaleSlider.value = String(avatarHeadPitchScale)
   avatarHeadPitchScaleValue.textContent = `${avatarHeadPitchScale}%`
+}
+
+function updateAvatarModelButtons(url: string | null) {
+  for (const button of avatarModelButtons) {
+    const preset = avatarModelPresets.find((model) => model.id === button.dataset.avatarModel)
+    button.classList.toggle('is-active', Boolean(preset && preset.url === url))
+  }
+
+  avatarSampleButton.classList.toggle('is-active', url === defaultAvatarModelUrl)
 }
 
 function setAvatarBackgroundImage(next: string | null) {

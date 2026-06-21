@@ -82,7 +82,7 @@ https://hands.xedoc.ru/?autostart=1
 
 - загрузка своей `.vrm` / `.glb` модели;
 - загрузка фоновой картинки для 3D-сцены;
-- кнопка `Тестовая` для sample VRM из репозитория `pixiv/three-vrm`;
+- кнопка `Тестовая` и список пресетов VRM: текущая sample-модель из `pixiv/three-vrm` и `AliciaSolid` из `vrm-c/UniVRM`;
 - fallback-манекен, если VRM не загрузился;
 - трекинг головы и мимики по Face Landmarker;
 - трекинг рук и верхней части тела по Hands/Pose Landmarker: найденная ладонь приоритетно ведёт руку аватара по экранной позиции, а пальцы VRM сгибаются по landmarks кисти;
