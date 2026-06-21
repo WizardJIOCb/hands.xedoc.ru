@@ -670,7 +670,18 @@ app.innerHTML = `
                 <label class="input-label" for="avatarHeight">Высота</label>
                 <strong id="avatarHeightValue">0</strong>
               </div>
-              <input id="avatarHeight" class="range-input" type="range" min="-60" max="60" step="1" value="0" />
+              <input id="avatarHeight" class="range-input" type="range" min="-120" max="120" step="1" value="0" />
+            </div>
+            <div class="mask-stability">
+              <div class="mask-stability-head">
+                <label class="input-label" for="avatarHeadRollOffset">Наклон головы</label>
+                <strong id="avatarHeadRollOffsetValue">0°</strong>
+              </div>
+              <input id="avatarHeadRollOffset" class="range-input" type="range" min="-30" max="30" step="1" value="0" />
+              <div class="range-captions">
+                <span>Влево</span>
+                <span>Вправо</span>
+              </div>
             </div>
           </div>
         </section>
@@ -1023,6 +1034,8 @@ const avatarScaleSlider = getElement<HTMLInputElement>('avatarScale')
 const avatarScaleValue = getElement<HTMLElement>('avatarScaleValue')
 const avatarHeightSlider = getElement<HTMLInputElement>('avatarHeight')
 const avatarHeightValue = getElement<HTMLElement>('avatarHeightValue')
+const avatarHeadRollOffsetSlider = getElement<HTMLInputElement>('avatarHeadRollOffset')
+const avatarHeadRollOffsetValue = getElement<HTMLElement>('avatarHeadRollOffsetValue')
 const currentGesture = getElement<HTMLElement>('currentGesture')
 const fpsValue = getElement<HTMLElement>('fpsValue')
 const handCount = getElement<HTMLElement>('handCount')
@@ -1132,6 +1145,7 @@ let avatarTorsoEnabled = localStorage.getItem('xedoc-hands-avatar-torso') !== 'o
 let avatarSmoothing = readAvatarSmoothing()
 let avatarScale = readAvatarScale()
 let avatarHeight = readAvatarHeight()
+let avatarHeadRollOffset = readAvatarHeadRollOffset()
 let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
 let maskMode: MaskMode = readMaskMode()
 let maskStability = readMaskStability()
@@ -1203,6 +1217,7 @@ setAvatarTorsoEnabled(avatarTorsoEnabled)
 setAvatarSmoothing(avatarSmoothing)
 setAvatarScale(avatarScale)
 setAvatarHeight(avatarHeight)
+setAvatarHeadRollOffset(avatarHeadRollOffset)
 setAvatarEnabled(avatarEnabled)
 setMaskMode(maskMode)
 setMaskStability(maskStability)
@@ -1334,6 +1349,14 @@ avatarHeightSlider.addEventListener('input', () => {
 
 avatarHeightSlider.addEventListener('change', () => {
   trackMetrika('avatar_setting_changed', { setting: 'height', value: avatarHeight })
+})
+
+avatarHeadRollOffsetSlider.addEventListener('input', () => {
+  setAvatarHeadRollOffset(Number(avatarHeadRollOffsetSlider.value))
+})
+
+avatarHeadRollOffsetSlider.addEventListener('change', () => {
+  trackMetrika('avatar_setting_changed', { setting: 'headRollOffset', value: avatarHeadRollOffset })
 })
 
 avatarSampleButton.addEventListener('click', () => {
@@ -2494,7 +2517,8 @@ function applyAvatarFace(rig: AvatarRig, faceResult: FaceLandmarkerResult | null
   const pose = face ? getHeadPose(face) : null
   const yaw = pose ? (mirrorMode ? -pose.yaw : pose.yaw) : Math.sin(idle * 0.7) * 0.03
   const pitch = pose ? pose.pitch : Math.sin(idle * 0.9) * 0.025
-  const roll = face ? getFaceRoll(face) : Math.sin(idle * 0.6) * 0.02
+  const rollOffset = (avatarHeadRollOffset * Math.PI) / 180
+  const roll = (face ? getFaceRoll(face) : Math.sin(idle * 0.6) * 0.02) + rollOffset
   const response = getAvatarResponse()
 
   rotateAvatarBone(rig, VRMHumanBoneName.Head, 'head', {
@@ -4115,11 +4139,18 @@ function setAvatarScale(next: number) {
 }
 
 function setAvatarHeight(next: number) {
-  avatarHeight = clamp(Math.round(next), -60, 60)
+  avatarHeight = clamp(Math.round(next), -120, 120)
   localStorage.setItem('xedoc-hands-avatar-height', String(avatarHeight))
   avatarHeightSlider.value = String(avatarHeight)
   avatarHeightValue.textContent = signedValue(avatarHeight)
   applyAvatarTransform()
+}
+
+function setAvatarHeadRollOffset(next: number) {
+  avatarHeadRollOffset = clamp(Math.round(next), -30, 30)
+  localStorage.setItem('xedoc-hands-avatar-head-roll-offset', String(avatarHeadRollOffset))
+  avatarHeadRollOffsetSlider.value = String(avatarHeadRollOffset)
+  avatarHeadRollOffsetValue.textContent = `${signedValue(avatarHeadRollOffset)}°`
 }
 
 function setPerformanceMode(next: PerformanceMode) {
@@ -4459,7 +4490,13 @@ function readAvatarScale() {
 function readAvatarHeight() {
   const raw = localStorage.getItem('xedoc-hands-avatar-height')
   const saved = raw === null ? Number.NaN : Number(raw)
-  return Number.isFinite(saved) ? clamp(Math.round(saved), -60, 60) : 0
+  return Number.isFinite(saved) ? clamp(Math.round(saved), -120, 120) : 0
+}
+
+function readAvatarHeadRollOffset() {
+  const raw = localStorage.getItem('xedoc-hands-avatar-head-roll-offset')
+  const saved = raw === null ? Number.NaN : Number(raw)
+  return Number.isFinite(saved) ? clamp(Math.round(saved), -30, 30) : 0
 }
 
 function readMaskStability() {
