@@ -716,6 +716,30 @@ svg {
   margin-top: 12px;
 }
 
+.mask-preset-field {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.select-input {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 680;
+}
+
+.select-input:focus {
+  border-color: rgba(47, 110, 211, 0.55);
+  outline: 2px solid rgba(47, 110, 211, 0.16);
+}
+
 .mask-preset-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
@@ -992,6 +1016,7 @@ svg {
 }
 
 .gesture-tile {
+  position: relative;
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
   align-items: start;
@@ -1005,12 +1030,58 @@ svg {
     border-color 0.16s ease,
     background 0.16s ease,
     transform 0.16s ease;
+  cursor: pointer;
 }
 
 .gesture-tile.is-live {
   border-color: rgba(15, 159, 110, 0.65);
   background: var(--green-soft);
   transform: translateY(-2px);
+}
+
+.gesture-tile.is-disabled {
+  opacity: 0.58;
+}
+
+.gesture-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.gesture-check input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.gesture-check span {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.65);
+}
+
+.gesture-check input:checked + span {
+  border-color: rgba(15, 159, 110, 0.72);
+  background: var(--green);
+}
+
+.gesture-check input:checked + span::after {
+  display: block;
+  width: 5px;
+  height: 9px;
+  margin: 2px 0 0 6px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  content: '';
+  transform: rotate(45deg);
 }
 
 .tile-icon {
@@ -1041,6 +1112,72 @@ svg {
   display: block;
   font-style: normal;
   overflow-wrap: anywhere;
+}
+
+.gesture-dialog {
+  width: min(420px, calc(100vw - 28px));
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: 0 24px 70px rgba(12, 20, 24, 0.24);
+}
+
+.gesture-dialog::backdrop {
+  background: rgba(12, 20, 24, 0.28);
+}
+
+.gesture-dialog-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.gesture-dialog-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.gesture-dialog-head h2 {
+  margin: 2px 0 0;
+  font-size: 18px;
+}
+
+.dialog-option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.dialog-option-row strong,
+.dialog-option-row em {
+  display: block;
+}
+
+.dialog-option-row em {
+  margin-top: 3px;
+  color: var(--muted);
+  font-style: normal;
+  font-size: 12px;
+}
+
+.dialog-option-row input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--green);
+}
+
+.dialog-field {
+  display: grid;
+  gap: 6px;
 }
 
 .event-log {

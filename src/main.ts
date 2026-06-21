@@ -298,6 +298,17 @@ const gestureDefinitions: GestureDefinition[] = [
 ]
 
 const gestureKeys = new Set(gestureDefinitions.map((gesture) => gesture.key))
+const defaultGestureKeys = gestureDefinitions.map((gesture) => gesture.key)
+const shapeGestureKeys: GestureKey[] = [
+  'OK_Gesture',
+  'Finger_Gun',
+  'Three_Fingers',
+  'Four_Fingers',
+  'Palm_Up',
+  'Palm_Down',
+]
+const swipeGestureKeys: GestureKey[] = ['Swipe_Left', 'Swipe_Right', 'Swipe_Up', 'Swipe_Down']
+const zoomGestureKeys: GestureKey[] = ['Zoom_In', 'Zoom_Out']
 const faceTriangles = buildFaceTriangles(FaceLandmarker.FACE_LANDMARKS_TESSELATION)
 const faceMaskSlotCount = 4
 const extraMaskSlotNumbers = [2, 3, 4] as const
@@ -776,15 +787,15 @@ app.innerHTML = `
             <input id="maskFile" class="file-input" type="file" accept="image/*" />
             <p class="mask-state" id="maskState">Не выбрана</p>
           </div>
-          <div class="mask-preset-list" id="maskPresetList" aria-label="Готовые маски">
-            <button class="mask-mode-button mask-preset-button" data-mask-preset="uploaded" type="button">Загруженная</button>
-            ${maskPresets.map((preset) => `
-              <button
-                class="mask-mode-button mask-preset-button"
-                data-mask-preset="${preset.id}"
-                type="button"
-              >${preset.label}</button>
-            `).join('')}
+          <div class="mask-preset-field" aria-label="Готовые маски">
+            <label class="input-label" for="maskPresetSelect">Список масок</label>
+            <select class="select-input" id="maskPresetSelect">
+              <option value="">Выбрать маску</option>
+              <option value="uploaded">Загруженная</option>
+              ${maskPresets.map((preset) => `
+                <option value="${preset.id}">${preset.label}</option>
+              `).join('')}
+            </select>
           </div>
           <div class="mask-mode" id="maskModeTabs" aria-label="Режим маски">
             <button class="mask-mode-button" data-mask-mode="mesh" type="button">Mesh</button>
@@ -1072,6 +1083,35 @@ app.innerHTML = `
       </div>
       <div class="event-log" id="eventLog"></div>
     </section>
+
+    <dialog class="gesture-dialog" id="gestureDialog">
+      <form method="dialog" class="gesture-dialog-card">
+        <div class="gesture-dialog-head">
+          <div>
+            <span class="label">Жест</span>
+            <h2 id="gestureDialogTitle">Настройки жеста</h2>
+          </div>
+          <button class="icon-button" id="gestureDialogClose" type="submit" aria-label="Закрыть">×</button>
+        </div>
+        <label class="dialog-option-row">
+          <span>
+            <strong>Трекать жест</strong>
+            <em id="gestureDialogSignal">Источник</em>
+          </span>
+          <input id="gestureDialogEnabled" type="checkbox" />
+        </label>
+        <label class="dialog-field">
+          <span class="input-label">Действие</span>
+          <select class="select-input" id="gestureDialogAction">
+            <option value="preset">Действие режима</option>
+            <option value="webhook">Webhook событие</option>
+            <option value="log">Только лог</option>
+            <option value="none">Без действия</option>
+          </select>
+        </label>
+        <p class="panel-state" id="gestureDialogActionHint">Список действий будем расширять.</p>
+      </form>
+    </dialog>
   </div>
 `
 
@@ -1143,7 +1183,7 @@ const presetTitle = getElement<HTMLElement>('presetTitle')
 const presetTabs = getElement<HTMLDivElement>('presetTabs')
 const maskToggle = getElement<HTMLInputElement>('maskToggle')
 const maskFile = getElement<HTMLInputElement>('maskFile')
-const maskPresetButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-mask-preset]'))
+const maskPresetSelect = getElement<HTMLSelectElement>('maskPresetSelect')
 const maskState = getElement<HTMLElement>('maskState')
 const maskPreview = getElement<HTMLImageElement>('maskPreview')
 const maskSlotsBlock = getElement<HTMLDivElement>('maskSlotsBlock')
@@ -1196,6 +1236,12 @@ const eventJson = getElement<HTMLPreElement>('eventJson')
 const copyButton = getElement<HTMLButtonElement>('copyButton')
 const gestureGrid = getElement<HTMLDivElement>('gestureGrid')
 const actionHint = getElement<HTMLElement>('actionHint')
+const gestureDialog = getElement<HTMLDialogElement>('gestureDialog')
+const gestureDialogTitle = getElement<HTMLElement>('gestureDialogTitle')
+const gestureDialogSignal = getElement<HTMLElement>('gestureDialogSignal')
+const gestureDialogEnabled = getElement<HTMLInputElement>('gestureDialogEnabled')
+const gestureDialogAction = getElement<HTMLSelectElement>('gestureDialogAction')
+const gestureDialogActionHint = getElement<HTMLElement>('gestureDialogActionHint')
 const eventLog = getElement<HTMLDivElement>('eventLog')
 const eventCount = getElement<HTMLElement>('eventCount')
 
@@ -1226,6 +1272,7 @@ let isRunning = false
 let lastVideoTime = -1
 let currentPreset: PresetId = readPreset()
 let mirrorMode = localStorage.getItem('xedoc-hands-mirror') !== 'off'
+let enabledGestures = readEnabledGestures()
 let handTrackingEnabled = localStorage.getItem('xedoc-hands-hand-tracking') !== 'off'
 let handMarkersEnabled = localStorage.getItem('xedoc-hands-hand-markers') !== 'off'
 let faceTrackingEnabled = localStorage.getItem('xedoc-hands-face-tracking') !== 'off'
@@ -1590,22 +1637,46 @@ maskFile.addEventListener('change', () => {
   }
 })
 
-for (const button of maskPresetButtons) {
-  button.addEventListener('click', () => {
-    const presetId = button.dataset.maskPreset
+maskPresetSelect.addEventListener('change', () => {
+  const presetId = maskPresetSelect.value
 
-    if (presetId === 'uploaded') {
-      applyUploadedMaskOption()
-      return
-    }
+  if (!presetId) {
+    return
+  }
 
-    const preset = maskPresets.find((item) => item.id === presetId)
+  if (presetId === 'uploaded') {
+    applyUploadedMaskOption()
+    return
+  }
 
-    if (preset) {
-      loadMaskPreset(preset)
-    }
+  const preset = maskPresets.find((item) => item.id === presetId)
+
+  if (preset) {
+    loadMaskPreset(preset)
+  }
+})
+
+gestureDialogEnabled.addEventListener('change', () => {
+  const gestureValue = gestureDialog.dataset.gesture ?? ''
+
+  if (isGestureKey(gestureValue)) {
+    setGestureEnabled(gestureValue, gestureDialogEnabled.checked)
+  }
+})
+
+gestureDialogAction.addEventListener('change', () => {
+  const gestureValue = gestureDialog.dataset.gesture ?? ''
+
+  if (!isGestureKey(gestureValue)) {
+    return
+  }
+
+  trackMetrika('gesture_action_selected', {
+    gesture: gestureValue,
+    gestureTitle: gestureTitleFor(gestureValue),
+    actionMode: gestureDialogAction.value,
   })
-}
+})
 
 maskSlotFiles.forEach((input, index) => {
   input.addEventListener('change', () => {
@@ -2096,8 +2167,8 @@ function processResult(
     }
   }
 
-  if (handTrackingEnabled && isGestureKey(modelGesture) && topScore > 0.58) {
-    detected.add(modelGesture)
+  if (handTrackingEnabled && isGestureKey(modelGesture) && topScore > 0.58 && isGestureEnabled(modelGesture)) {
+    addDetectedGesture(detected, modelGesture)
     fireGesture(modelGesture, topScore, 'model')
   }
 
@@ -2109,15 +2180,15 @@ function processResult(
     pinchStrength = pinch.strength
 
     if (pinch.active) {
-      detected.add('Pinch')
+      addDetectedGesture(detected, 'Pinch')
     }
 
     if (pinch.holdActive) {
-      detected.add('Pinch_Hold')
+      addDetectedGesture(detected, 'Pinch_Hold')
     }
 
     updateShapeGestures(landmarks, pinch.ratio, detected)
-    motionStrength = updateMotion(landmarks, now)
+    motionStrength = updateMotion(landmarks, now, detected)
     updateCursor(landmarks)
   } else {
     resetHandTracking()
@@ -2181,46 +2252,59 @@ function updateShapeGestures(
   pinchRatio: number,
   detected: Set<GestureKey>,
 ) {
+  if (!hasAnyGestureEnabled(shapeGestureKeys)) {
+    return
+  }
+
   const hand = analyzeHand(landmarks)
   const pinchConfidence = clamp(1 - pinchRatio, 0, 1)
   const directionY = hand.averageLongTipY - landmarks[0].y
   const directionConfidence = clamp(Math.abs(directionY) / (hand.palmWidth * 1.8), 0, 1)
 
   if (pinchRatio < 0.47 && hand.middle && hand.ring && hand.pinky) {
-    detected.add('OK_Gesture')
-    fireGesture('OK_Gesture', pinchConfidence, 'landmarks', {
-      ratio: round(pinchRatio),
-      longFingers: hand.longCount,
-    })
-    return
+    if (isGestureEnabled('OK_Gesture')) {
+      addDetectedGesture(detected, 'OK_Gesture')
+      fireGesture('OK_Gesture', pinchConfidence, 'landmarks', {
+        ratio: round(pinchRatio),
+        longFingers: hand.longCount,
+      })
+      return
+    }
   }
 
   if (hand.thumb && hand.index && !hand.middle && !hand.ring && !hand.pinky) {
-    detected.add('Finger_Gun')
-    fireGesture('Finger_Gun', 0.86, 'landmarks', { longFingers: hand.longCount })
-    return
+    if (isGestureEnabled('Finger_Gun')) {
+      addDetectedGesture(detected, 'Finger_Gun')
+      fireGesture('Finger_Gun', 0.86, 'landmarks', { longFingers: hand.longCount })
+      return
+    }
   }
 
   if (hand.index && hand.middle && hand.ring && !hand.pinky) {
-    detected.add('Three_Fingers')
+    addDetectedGesture(detected, 'Three_Fingers')
     fireGesture('Three_Fingers', 0.82, 'landmarks', { longFingers: hand.longCount })
   } else if (hand.longCount === 4 && !hand.thumb) {
-    detected.add('Four_Fingers')
+    addDetectedGesture(detected, 'Four_Fingers')
     fireGesture('Four_Fingers', 0.82, 'landmarks', { longFingers: hand.longCount })
   }
 
   if (hand.longCount >= 4 && directionY < -hand.palmWidth * 0.7) {
-    detected.add('Palm_Up')
+    addDetectedGesture(detected, 'Palm_Up')
     fireGesture('Palm_Up', directionConfidence, 'landmarks', { directionY: round(directionY) })
   }
 
   if (hand.longCount >= 4 && directionY > hand.palmWidth * 0.7) {
-    detected.add('Palm_Down')
+    addDetectedGesture(detected, 'Palm_Down')
     fireGesture('Palm_Down', directionConfidence, 'landmarks', { directionY: round(directionY) })
   }
 }
 
-function updateMotion(landmarks: NormalizedLandmark[], now: number) {
+function updateMotion(landmarks: NormalizedLandmark[], now: number, detected: Set<GestureKey>) {
+  if (!hasAnyGestureEnabled(swipeGestureKeys)) {
+    motionSamples = []
+    return 0
+  }
+
   const pointer = landmarks[8]
   const sample = {
     x: mirrorMode ? 1 - pointer.x : pointer.x,
@@ -2243,12 +2327,14 @@ function updateMotion(landmarks: NormalizedLandmark[], now: number) {
 
   if (Math.abs(dx) > 0.22 && Math.abs(dx) > Math.abs(dy) * 1.45) {
     const gesture: GestureKey = dx > 0 ? 'Swipe_Right' : 'Swipe_Left'
+    addDetectedGesture(detected, gesture)
     fireGesture(gesture, strength, 'motion', { dx: round(dx), dy: round(dy) })
     motionSamples = []
   }
 
   if (Math.abs(dy) > 0.2 && Math.abs(dy) > Math.abs(dx) * 1.45) {
     const gesture: GestureKey = dy < 0 ? 'Swipe_Up' : 'Swipe_Down'
+    addDetectedGesture(detected, gesture)
     fireGesture(gesture, strength, 'motion', { dx: round(dx), dy: round(dy) })
     motionSamples = []
   }
@@ -2257,7 +2343,7 @@ function updateMotion(landmarks: NormalizedLandmark[], now: number) {
 }
 
 function updateZoom(hands: NormalizedLandmark[][], now: number, detected: Set<GestureKey>) {
-  if (hands.length < 2) {
+  if (!hasAnyGestureEnabled(zoomGestureKeys) || hands.length < 2) {
     zoomSamples = []
     return
   }
@@ -2279,7 +2365,7 @@ function updateZoom(hands: NormalizedLandmark[][], now: number, detected: Set<Ge
 
   if (Math.abs(delta) > 0.12) {
     const gesture: GestureKey = delta > 0 ? 'Zoom_In' : 'Zoom_Out'
-    detected.add(gesture)
+    addDetectedGesture(detected, gesture)
     fireGesture(gesture, strength, 'motion', { delta: round(delta), span: round(span) })
     zoomSamples = []
   }
@@ -2711,7 +2797,7 @@ function applyAvatarFace(rig: AvatarRig, faceResult: FaceLandmarkerResult | null
   const yaw = pose ? pose.yaw : Math.sin(idle * 0.7) * 0.03
   const pitchOffset = (avatarHeadPitchOffset * Math.PI) / 180
   const pitch = (pose ? pose.pitch : Math.sin(idle * 0.9) * 0.025) * (avatarHeadPitchScale / 100) + pitchOffset
-  const rollOffset = (avatarHeadRollOffset * Math.PI) / 180
+  const rollOffset = (-avatarHeadRollOffset * Math.PI) / 180
   const roll = (face ? getFaceRoll(face) : Math.sin(idle * 0.6) * 0.02) + rollOffset
   const response = getAvatarResponse()
 
@@ -4228,13 +4314,19 @@ function syncMaskCanvases() {
   }
 }
 
+function addDetectedGesture(detected: Set<GestureKey>, gesture: GestureKey) {
+  if (isGestureEnabled(gesture)) {
+    detected.add(gesture)
+  }
+}
+
 function fireFaceSignal(
   gesture: GestureKey,
   confidence: number,
   detected: Set<GestureKey>,
   details?: GestureEvent['details'],
 ) {
-  detected.add(gesture)
+  addDetectedGesture(detected, gesture)
   fireGesture(gesture, confidence, 'face', details)
 }
 
@@ -4285,6 +4377,10 @@ function fireGesture(
   source: GestureEvent['source'],
   details?: GestureEvent['details'],
 ) {
+  if (!isGestureEnabled(gesture)) {
+    return
+  }
+
   const now = performance.now()
   const cooldown = source === 'model' ? 1150 : 760
   const lastFired = cooldowns.get(gesture) ?? 0
@@ -4405,11 +4501,21 @@ function renderPresetTabs() {
 
 function renderGestureGrid() {
   const actions = presets[currentPreset].actions
+  const enabledCount = gestureDefinitions.filter((gesture) => isGestureEnabled(gesture.key)).length
 
   gestureGrid.innerHTML = gestureDefinitions
     .map(
       (gesture) => `
-        <article class="gesture-tile" data-gesture="${gesture.key}">
+        <article class="gesture-tile${isGestureEnabled(gesture.key) ? '' : ' is-disabled'}" data-gesture="${gesture.key}">
+          <label class="gesture-check" title="Трекать жест">
+            <input
+              class="gesture-enabled"
+              data-gesture-toggle="${gesture.key}"
+              type="checkbox"
+              ${isGestureEnabled(gesture.key) ? 'checked' : ''}
+            />
+            <span></span>
+          </label>
           <div class="tile-icon"><i data-lucide="${gesture.icon}"></i></div>
           <div>
             <span class="tile-title">${gesture.title}</span>
@@ -4421,7 +4527,28 @@ function renderGestureGrid() {
     )
     .join('')
 
-  actionHint.textContent = `${presets[currentPreset].title}: ${gestureDefinitions.length} команд`
+  actionHint.textContent = `${presets[currentPreset].title}: ${enabledCount} из ${gestureDefinitions.length} команд`
+
+  gestureGrid.querySelectorAll<HTMLInputElement>('.gesture-enabled').forEach((input) => {
+    input.addEventListener('click', (event) => event.stopPropagation())
+    input.addEventListener('change', () => {
+      const gestureValue = input.dataset.gestureToggle ?? ''
+
+      if (isGestureKey(gestureValue)) {
+        setGestureEnabled(gestureValue, input.checked)
+      }
+    })
+  })
+
+  gestureGrid.querySelectorAll<HTMLElement>('.gesture-tile').forEach((tile) => {
+    tile.addEventListener('click', () => {
+      const gestureValue = tile.dataset.gesture ?? ''
+
+      if (isGestureKey(gestureValue)) {
+        openGestureDialog(gestureValue)
+      }
+    })
+  })
 }
 
 function renderMaskModeTabs() {
@@ -4460,7 +4587,60 @@ function renderLog() {
 function setActiveGestures(active: Set<GestureKey>) {
   gestureGrid.querySelectorAll<HTMLElement>('.gesture-tile').forEach((tile) => {
     const key = tile.dataset.gesture as GestureKey
-    tile.classList.toggle('is-live', active.has(key))
+    tile.classList.toggle('is-live', active.has(key) && isGestureEnabled(key))
+    tile.classList.toggle('is-disabled', !isGestureEnabled(key))
+  })
+}
+
+function setGestureEnabled(gesture: GestureKey, enabled: boolean) {
+  if (enabled) {
+    enabledGestures.add(gesture)
+  } else {
+    enabledGestures.delete(gesture)
+    cooldowns.delete(gesture)
+  }
+
+  saveEnabledGestures()
+  renderGestureGrid()
+  setActiveGestures(new Set())
+  refreshIcons()
+  trackMetrika('gesture_tracking_toggled', {
+    gesture,
+    gestureTitle: gestureTitleFor(gesture),
+    enabled,
+    enabledCount: enabledGestures.size,
+  })
+
+  if (gestureDialog.open && gestureDialog.dataset.gesture === gesture) {
+    openGestureDialog(gesture)
+  }
+}
+
+function openGestureDialog(gesture: GestureKey) {
+  const definition = gestureDefinitions.find((item) => item.key === gesture)
+
+  if (!definition) {
+    return
+  }
+
+  gestureDialog.dataset.gesture = gesture
+  gestureDialogTitle.textContent = definition.title
+  gestureDialogSignal.textContent = `${definition.signal} • ${gesture}`
+  gestureDialogEnabled.checked = isGestureEnabled(gesture)
+  gestureDialogAction.value = 'preset'
+  gestureDialogActionHint.textContent = `Сейчас в режиме «${presets[currentPreset].title}»: ${presets[currentPreset].actions[gesture]}.`
+
+  if (!gestureDialog.open) {
+    if (typeof gestureDialog.showModal === 'function') {
+      gestureDialog.showModal()
+    } else {
+      gestureDialog.setAttribute('open', 'true')
+    }
+  }
+
+  trackMetrika('gesture_settings_opened', {
+    gesture,
+    gestureTitle: definition.title,
   })
 }
 
@@ -5231,12 +5411,13 @@ function updateMaskState() {
 }
 
 function updateMaskPresetButtons() {
-  for (const button of maskPresetButtons) {
-    const presetId = button.dataset.maskPreset ?? ''
-    const isUploaded = presetId === 'uploaded'
-    button.disabled = isUploaded && !uploadedMaskOption
-    button.classList.toggle('is-active', presetId === activeMaskPresetId)
+  const uploadedOption = Array.from(maskPresetSelect.options).find((option) => option.value === 'uploaded')
+
+  if (uploadedOption) {
+    uploadedOption.disabled = !uploadedMaskOption
   }
+
+  maskPresetSelect.value = activeMaskPresetId ?? ''
 }
 
 function hasMeshMaskLayer() {
@@ -5571,6 +5752,34 @@ function readCollapsedPanels() {
 
 function saveCollapsedPanels(panels: Set<string>) {
   localStorage.setItem('xedoc-hands-collapsed-panels', JSON.stringify([...panels]))
+}
+
+function readEnabledGestures() {
+  try {
+    const raw = localStorage.getItem('xedoc-hands-enabled-gestures')
+    const parsed = raw ? JSON.parse(raw) : null
+
+    if (!Array.isArray(parsed)) {
+      return new Set<GestureKey>(defaultGestureKeys)
+    }
+
+    const enabled = parsed.filter((value): value is GestureKey => isGestureKey(value))
+    return new Set<GestureKey>(enabled)
+  } catch {
+    return new Set<GestureKey>(defaultGestureKeys)
+  }
+}
+
+function saveEnabledGestures() {
+  localStorage.setItem('xedoc-hands-enabled-gestures', JSON.stringify([...enabledGestures]))
+}
+
+function isGestureEnabled(gesture: GestureKey) {
+  return enabledGestures.has(gesture)
+}
+
+function hasAnyGestureEnabled(gestures: GestureKey[]) {
+  return gestures.some((gesture) => isGestureEnabled(gesture))
 }
 
 function isGestureKey(value: string): value is GestureKey {
