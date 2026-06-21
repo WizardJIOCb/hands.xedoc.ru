@@ -2823,6 +2823,8 @@ function applyAvatarArmFromHand(
   const y = center.y - 0.5 + getAvatarHandHeightOffset()
   const raise = clamp((0.56 - center.y) * 2.4, 0, 1.15)
   const lateral = clamp(Math.abs(x) * 2.2, 0, 1.1)
+  const closeToTorso = 1 - clamp(lateral / 1.05, 0, 1)
+  const elbowBend = clamp(0.18 + raise * 0.38 + closeToTorso * 0.58, 0.12, 1.0)
   const shoulderOut = clamp(0.6 - raise * 1.08 + lateral * 0.12, -0.55, 0.72)
   const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
   const lowerName = side === 'left' ? VRMHumanBoneName.LeftLowerArm : VRMHumanBoneName.RightLowerArm
@@ -2833,8 +2835,8 @@ function applyAvatarArmFromHand(
     z: sideSign * shoulderOut,
   }, response)
   rotateAvatarBone(rig, lowerName, `${side}LowerArm`, {
-    x: clamp(0.2 + raise * 0.58 - y * 0.08, -0.12, 0.95),
-    y: 0,
+    x: elbowBend,
+    y: sideSign * closeToTorso * 0.16,
     z: clamp(sideSign * x * 0.38, -0.42, 0.42),
   }, response)
 }
@@ -2849,13 +2851,7 @@ function getAvatarHandDisplayCenter(landmarks: NormalizedLandmark[]) {
 }
 
 function getAvatarSideForDisplayX(x: number): AvatarSide {
-  const visibleSide: AvatarSide = x < 0.5 ? 'left' : 'right'
-
-  if (!mirrorMode) {
-    return visibleSide
-  }
-
-  return visibleSide === 'left' ? 'right' : 'left'
+  return x < 0.5 ? 'left' : 'right'
 }
 
 function getAvatarHandTrackingFrame(pose: NormalizedLandmark[] | undefined) {
@@ -2934,6 +2930,8 @@ function applyAvatarArmFromHandLandmarks(
   const verticalReach = clamp(relativeY, -0.18, 1.35)
   const sideReach = clamp(Math.abs(relativeX), 0, 1.28)
   const raise = clamp((verticalReach + 0.08) / 1.18, 0, 1.18)
+  const closeToTorso = 1 - clamp(sideReach / 1.05, 0, 1)
+  const elbowBend = clamp(0.2 + raise * 0.42 + closeToTorso * 0.62, 0.12, 1.08)
   const shoulderOut = clamp(0.62 - raise * 1.16 + sideReach * 0.14, -0.62, 0.74)
   const forwardDepth = clamp(-palmCenter.z * 1.25, -0.38, 0.52)
   const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
@@ -2946,8 +2944,8 @@ function applyAvatarArmFromHandLandmarks(
     z: sideSign * shoulderOut,
   }, response)
   rotateAvatarBone(rig, lowerName, `${side}LowerArm`, {
-    x: clamp(0.16 + raise * 0.72, -0.12, 1.05),
-    y: clamp(sideSign * forwardDepth * 0.48, -0.42, 0.42),
+    x: elbowBend,
+    y: clamp(sideSign * (forwardDepth * 0.48 + closeToTorso * 0.18), -0.48, 0.48),
     z: clamp(sideSign * (screenSideSign * sideSign * sideReach * 0.18 + relativeX * 0.28), -0.5, 0.5),
   }, response)
   rotateAvatarBone(rig, handName, `${side}Hand`, {
