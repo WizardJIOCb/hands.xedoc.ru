@@ -624,6 +624,14 @@ app.innerHTML = `
             <input id="avatarFile" class="file-input" type="file" accept=".vrm,.glb,model/gltf-binary" />
             <button class="mask-mode-button mask-sample-button" id="avatarSampleButton" type="button">Тестовая</button>
           </div>
+          <div class="mask-control avatar-bg-control">
+            <label class="file-button" for="avatarBackgroundFile">
+              <i data-lucide="scan-eye"></i>
+              <span>Фон</span>
+            </label>
+            <input id="avatarBackgroundFile" class="file-input" type="file" accept="image/*" />
+            <button class="mask-mode-button mask-sample-button" id="avatarBackgroundClearButton" type="button">Очистить</button>
+          </div>
           <p class="panel-state" id="avatarState">Выключен</p>
           <div class="mask-adjust-grid">
             <div class="option-row">
@@ -1024,6 +1032,8 @@ const performanceModeState = getElement<HTMLElement>('performanceModeState')
 const avatarToggle = getElement<HTMLInputElement>('avatarToggle')
 const avatarFile = getElement<HTMLInputElement>('avatarFile')
 const avatarSampleButton = getElement<HTMLButtonElement>('avatarSampleButton')
+const avatarBackgroundFile = getElement<HTMLInputElement>('avatarBackgroundFile')
+const avatarBackgroundClearButton = getElement<HTMLButtonElement>('avatarBackgroundClearButton')
 const avatarState = getElement<HTMLElement>('avatarState')
 const avatarFaceToggle = getElement<HTMLInputElement>('avatarFaceToggle')
 const avatarHandsToggle = getElement<HTMLInputElement>('avatarHandsToggle')
@@ -1146,6 +1156,7 @@ let avatarSmoothing = readAvatarSmoothing()
 let avatarScale = readAvatarScale()
 let avatarHeight = readAvatarHeight()
 let avatarHeadRollOffset = readAvatarHeadRollOffset()
+let avatarBackgroundImage = readAvatarBackgroundImage()
 let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
 let maskMode: MaskMode = readMaskMode()
 let maskStability = readMaskStability()
@@ -1218,6 +1229,7 @@ setAvatarSmoothing(avatarSmoothing)
 setAvatarScale(avatarScale)
 setAvatarHeight(avatarHeight)
 setAvatarHeadRollOffset(avatarHeadRollOffset)
+setAvatarBackgroundImage(avatarBackgroundImage)
 setAvatarEnabled(avatarEnabled)
 setMaskMode(maskMode)
 setMaskStability(maskStability)
@@ -1377,6 +1389,23 @@ avatarFile.addEventListener('change', () => {
   const objectUrl = URL.createObjectURL(file)
   void loadAvatarModel(objectUrl, file.name)
   avatarFile.value = ''
+})
+
+avatarBackgroundFile.addEventListener('change', () => {
+  const file = avatarBackgroundFile.files?.[0]
+
+  if (file) {
+    void loadAvatarBackgroundFile(file)
+  }
+
+  avatarBackgroundFile.value = ''
+})
+
+avatarBackgroundClearButton.addEventListener('click', () => {
+  setAvatarBackgroundImage(null)
+  trackMetrika('avatar_background_changed', {
+    action: 'clear',
+  })
 })
 
 performanceModeTabs.addEventListener('click', (event) => {
@@ -2770,6 +2799,54 @@ function applyAvatarTransform() {
   renderAvatarScene(performance.now())
 }
 
+async function loadAvatarBackgroundFile(file: File) {
+  if (!file.type.startsWith('image/')) {
+    avatarState.textContent = 'Фон не изображение'
+    return
+  }
+
+  try {
+    avatarState.textContent = 'Загружаем фон'
+    const dataUrl = await resizeImageFileToDataUrl(file, 1920, 0.86)
+    setAvatarBackgroundImage(dataUrl)
+    avatarState.textContent = 'Фон обновлен'
+    trackMetrika('avatar_background_changed', {
+      action: 'upload',
+      size: file.size,
+    })
+  } catch (error) {
+    console.error(error)
+    avatarState.textContent = 'Фон не загрузился'
+  }
+}
+
+async function resizeImageFileToDataUrl(file: File, maxSize: number, quality: number) {
+  const image = await loadImageFromFile(file)
+  const scale = Math.min(1, maxSize / Math.max(image.naturalWidth, image.naturalHeight, 1))
+  const width = Math.max(1, Math.round(image.naturalWidth * scale))
+  const height = Math.max(1, Math.round(image.naturalHeight * scale))
+  const targetCanvas = document.createElement('canvas')
+  const targetContext = getCanvasContext(targetCanvas)
+  targetCanvas.width = width
+  targetCanvas.height = height
+  targetContext.drawImage(image, 0, 0, width, height)
+  URL.revokeObjectURL(image.src)
+  return targetCanvas.toDataURL('image/jpeg', quality)
+}
+
+function loadImageFromFile(file: File) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image()
+    const objectUrl = URL.createObjectURL(file)
+    image.onload = () => resolve(image)
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error('Image failed to load'))
+    }
+    image.src = objectUrl
+  })
+}
+
 function prepareAvatarObjectFrame(object: THREE.Object3D, fallback = false) {
   object.updateMatrixWorld(true)
   const box = new THREE.Box3().setFromObject(object)
@@ -4153,6 +4230,25 @@ function setAvatarHeadRollOffset(next: number) {
   avatarHeadRollOffsetValue.textContent = `${signedValue(avatarHeadRollOffset)}°`
 }
 
+function setAvatarBackgroundImage(next: string | null) {
+  avatarBackgroundImage = next
+  stage.classList.toggle('has-avatar-background', Boolean(next))
+  stage.style.setProperty('--avatar-background-image', next ? `url("${next}")` : 'none')
+  avatarBackgroundClearButton.disabled = !next
+
+  try {
+    if (next) {
+      localStorage.setItem('xedoc-hands-avatar-background', next)
+    } else {
+      localStorage.removeItem('xedoc-hands-avatar-background')
+    }
+  } catch (error) {
+    console.warn('Avatar background was too large to save', error)
+    localStorage.removeItem('xedoc-hands-avatar-background')
+    avatarState.textContent = 'Фон показан, но не сохранен'
+  }
+}
+
 function setPerformanceMode(next: PerformanceMode) {
   performanceMode = next
   localStorage.setItem('xedoc-hands-performance-mode', next)
@@ -4497,6 +4593,11 @@ function readAvatarHeadRollOffset() {
   const raw = localStorage.getItem('xedoc-hands-avatar-head-roll-offset')
   const saved = raw === null ? Number.NaN : Number(raw)
   return Number.isFinite(saved) ? clamp(Math.round(saved), -30, 30) : 0
+}
+
+function readAvatarBackgroundImage() {
+  const saved = localStorage.getItem('xedoc-hands-avatar-background')
+  return saved?.startsWith('data:image/') ? saved : null
 }
 
 function readMaskStability() {
