@@ -184,6 +184,8 @@ type AvatarRig = {
   lastRenderedAt: number
 }
 
+type AvatarSide = 'left' | 'right'
+
 type MetrikaParams = Record<string, string | number | boolean>
 
 declare global {
@@ -2702,25 +2704,37 @@ function applyAvatarTorso(rig: AvatarRig, pose?: NormalizedLandmark[]) {
 function applyAvatarHands(rig: AvatarRig, hands: NormalizedLandmark[][], pose?: NormalizedLandmark[]) {
   if (!avatarHandsEnabled) {
     applyAvatarRestArms(rig, getAvatarResponse() * 0.45)
+    applyAvatarRestFingers(rig, 'left', getAvatarResponse() * 0.35)
+    applyAvatarRestFingers(rig, 'right', getAvatarResponse() * 0.35)
     return
   }
 
   const response = getAvatarResponse()
   let leftApplied = applyAvatarArmFromPose(rig, 'left', pose?.[11], pose?.[13], pose?.[15], response)
   let rightApplied = applyAvatarArmFromPose(rig, 'right', pose?.[12], pose?.[14], pose?.[16], response)
+  let leftFingersApplied = false
+  let rightFingersApplied = false
 
-  if ((!leftApplied || !rightApplied) && hands.length > 0) {
+  if (hands.length > 0) {
     for (const hand of hands.slice(0, 2)) {
       const center = handCenter(hand)
       const isLeft = center.x < 0.5
+      const side: AvatarSide = isLeft ? 'left' : 'right'
 
       if ((isLeft && !leftApplied) || (!isLeft && !rightApplied)) {
-        applyAvatarArmFromHand(rig, isLeft ? 'left' : 'right', center, response * 0.45)
+        applyAvatarArmFromHand(rig, side, center, response * 0.45)
         if (isLeft) {
           leftApplied = true
         } else {
           rightApplied = true
         }
+      }
+
+      applyAvatarHandLandmarks(rig, side, hand, response)
+      if (isLeft) {
+        leftFingersApplied = true
+      } else {
+        rightFingersApplied = true
       }
     }
   }
@@ -2732,11 +2746,19 @@ function applyAvatarHands(rig: AvatarRig, hands: NormalizedLandmark[][], pose?: 
   if (!rightApplied) {
     applyAvatarRestArm(rig, 'right', response * 0.22)
   }
+
+  if (!leftFingersApplied) {
+    applyAvatarRestFingers(rig, 'left', response * 0.28)
+  }
+
+  if (!rightFingersApplied) {
+    applyAvatarRestFingers(rig, 'right', response * 0.28)
+  }
 }
 
 function applyAvatarArmFromPose(
   rig: AvatarRig,
-  side: 'left' | 'right',
+  side: AvatarSide,
   shoulder: NormalizedLandmark | undefined,
   elbow: NormalizedLandmark | undefined,
   wrist: NormalizedLandmark | undefined,
@@ -2782,7 +2804,7 @@ function applyAvatarArmFromPose(
 
 function applyAvatarArmFromHand(
   rig: AvatarRig,
-  side: 'left' | 'right',
+  side: AvatarSide,
   center: NormalizedLandmark,
   response: number,
 ) {
@@ -2805,12 +2827,212 @@ function applyAvatarArmFromHand(
   }, response)
 }
 
+function applyAvatarHandLandmarks(
+  rig: AvatarRig,
+  side: AvatarSide,
+  landmarks: NormalizedLandmark[],
+  response: number,
+) {
+  if (!rig.currentVrm || landmarks.length < 21) {
+    return
+  }
+
+  applyAvatarPalmPose(rig, side, landmarks, response)
+  applyAvatarFingerCurl(rig, side, landmarks, 'thumb', [1, 2, 3, 4], response)
+  applyAvatarFingerCurl(rig, side, landmarks, 'index', [5, 6, 7, 8], response)
+  applyAvatarFingerCurl(rig, side, landmarks, 'middle', [9, 10, 11, 12], response)
+  applyAvatarFingerCurl(rig, side, landmarks, 'ring', [13, 14, 15, 16], response)
+  applyAvatarFingerCurl(rig, side, landmarks, 'little', [17, 18, 19, 20], response)
+}
+
+function applyAvatarPalmPose(
+  rig: AvatarRig,
+  side: AvatarSide,
+  landmarks: NormalizedLandmark[],
+  response: number,
+) {
+  const wrist = landmarks[0]
+  const indexBase = landmarks[5]
+  const middleBase = landmarks[9]
+  const littleBase = landmarks[17]
+
+  if (!wrist || !indexBase || !middleBase || !littleBase) {
+    return
+  }
+
+  const sideSign = side === 'left' ? -1 : 1
+  const mirrorSign = mirrorMode ? -1 : 1
+  const palmLift = middleBase.y - wrist.y
+  const palmTwist = (middleBase.z ?? 0) - (wrist.z ?? 0)
+  const palmSpread = (indexBase.x - littleBase.x) * mirrorSign
+  const handName = side === 'left' ? VRMHumanBoneName.LeftHand : VRMHumanBoneName.RightHand
+
+  rotateAvatarBone(rig, handName, `${side}Hand`, {
+    x: clamp(-palmLift * 1.35, -0.62, 0.62),
+    y: clamp(sideSign * palmTwist * 2.4, -0.58, 0.58),
+    z: clamp(sideSign * palmSpread * 1.55, -0.62, 0.62),
+  }, response * 0.72)
+}
+
+function applyAvatarFingerCurl(
+  rig: AvatarRig,
+  side: AvatarSide,
+  landmarks: NormalizedLandmark[],
+  finger: 'thumb' | 'index' | 'middle' | 'ring' | 'little',
+  indices: [number, number, number, number],
+  response: number,
+) {
+  const [baseIndex, proximalIndex, intermediateIndex, tipIndex] = indices
+  const base = landmarks[baseIndex]
+  const proximal = landmarks[proximalIndex]
+  const intermediate = landmarks[intermediateIndex]
+  const tip = landmarks[tipIndex]
+
+  if (!base || !proximal || !intermediate || !tip) {
+    return
+  }
+
+  const proximalCurl = getFingerCurl(base, proximal, intermediate)
+  const distalCurl = getFingerCurl(proximal, intermediate, tip)
+  const tipDistance = distance(tip, landmarks[0])
+  const baseDistance = distance(base, landmarks[0])
+  const reachCurl = clamp(1 - tipDistance / Math.max(baseDistance * 2.6, 0.001), 0, 1)
+  const curl = clamp(proximalCurl * 0.55 + distalCurl * 0.35 + reachCurl * 0.28, 0, 1)
+  const spread = getFingerSpread(landmarks, finger, indices)
+  const bones = getAvatarFingerBones(side, finger)
+  const sideSign = side === 'left' ? -1 : 1
+  const thumbSign = finger === 'thumb' ? -sideSign : sideSign
+  const curlSign = finger === 'thumb' ? 0.78 : 1
+  const baseRotation = {
+    x: clamp(curl * 1.05 * curlSign, 0, finger === 'thumb' ? 0.82 : 1.12),
+    y: clamp(spread * thumbSign, -0.38, 0.38),
+    z: finger === 'thumb' ? clamp(sideSign * (0.34 - curl * 0.42), -0.42, 0.42) : 0,
+  }
+  const midRotation = {
+    x: clamp(curl * 1.18, 0, finger === 'thumb' ? 0.86 : 1.22),
+    y: 0,
+    z: 0,
+  }
+  const tipRotation = {
+    x: clamp(distalCurl * 0.92 + curl * 0.28, 0, finger === 'thumb' ? 0.78 : 1.02),
+    y: 0,
+    z: 0,
+  }
+
+  if (bones[0]) {
+    rotateAvatarBone(rig, bones[0], '', baseRotation, response * 0.82)
+  }
+
+  if (bones[1]) {
+    rotateAvatarBone(rig, bones[1], '', midRotation, response * 0.82)
+  }
+
+  if (bones[2]) {
+    rotateAvatarBone(rig, bones[2], '', tipRotation, response * 0.82)
+  }
+}
+
+function getAvatarFingerBones(
+  side: AvatarSide,
+  finger: 'thumb' | 'index' | 'middle' | 'ring' | 'little',
+): [VRMHumanBoneName, VRMHumanBoneName, VRMHumanBoneName | null] {
+  const left = side === 'left'
+
+  if (finger === 'thumb') {
+    return left
+      ? [VRMHumanBoneName.LeftThumbMetacarpal, VRMHumanBoneName.LeftThumbProximal, VRMHumanBoneName.LeftThumbDistal]
+      : [VRMHumanBoneName.RightThumbMetacarpal, VRMHumanBoneName.RightThumbProximal, VRMHumanBoneName.RightThumbDistal]
+  }
+
+  const map = {
+    index: left
+      ? [VRMHumanBoneName.LeftIndexProximal, VRMHumanBoneName.LeftIndexIntermediate, VRMHumanBoneName.LeftIndexDistal]
+      : [VRMHumanBoneName.RightIndexProximal, VRMHumanBoneName.RightIndexIntermediate, VRMHumanBoneName.RightIndexDistal],
+    middle: left
+      ? [VRMHumanBoneName.LeftMiddleProximal, VRMHumanBoneName.LeftMiddleIntermediate, VRMHumanBoneName.LeftMiddleDistal]
+      : [VRMHumanBoneName.RightMiddleProximal, VRMHumanBoneName.RightMiddleIntermediate, VRMHumanBoneName.RightMiddleDistal],
+    ring: left
+      ? [VRMHumanBoneName.LeftRingProximal, VRMHumanBoneName.LeftRingIntermediate, VRMHumanBoneName.LeftRingDistal]
+      : [VRMHumanBoneName.RightRingProximal, VRMHumanBoneName.RightRingIntermediate, VRMHumanBoneName.RightRingDistal],
+    little: left
+      ? [VRMHumanBoneName.LeftLittleProximal, VRMHumanBoneName.LeftLittleIntermediate, VRMHumanBoneName.LeftLittleDistal]
+      : [VRMHumanBoneName.RightLittleProximal, VRMHumanBoneName.RightLittleIntermediate, VRMHumanBoneName.RightLittleDistal],
+  } satisfies Record<typeof finger, [VRMHumanBoneName, VRMHumanBoneName, VRMHumanBoneName]>
+
+  return map[finger]
+}
+
+function getFingerCurl(a: NormalizedLandmark, b: NormalizedLandmark, c: NormalizedLandmark) {
+  const angle = landmarkAngle(a, b, c)
+  return clamp((Math.PI - angle) / 1.35, 0, 1)
+}
+
+function getFingerSpread(
+  landmarks: NormalizedLandmark[],
+  finger: 'thumb' | 'index' | 'middle' | 'ring' | 'little',
+  indices: [number, number, number, number],
+) {
+  const wrist = landmarks[0]
+  const middleBase = landmarks[9]
+  const base = landmarks[indices[0]]
+  const proximal = landmarks[indices[1]]
+
+  if (!wrist || !middleBase || !base || !proximal) {
+    return 0
+  }
+
+  const palmAngle = Math.atan2(middleBase.y - wrist.y, middleBase.x - wrist.x)
+  const fingerAngle = Math.atan2(proximal.y - base.y, proximal.x - base.x)
+  const raw = normalizeAngle(fingerAngle - palmAngle)
+  const weight = finger === 'thumb' ? 0.42 : 0.22
+
+  return clamp(raw * weight, -0.42, 0.42)
+}
+
+function landmarkAngle(a: NormalizedLandmark, b: NormalizedLandmark, c: NormalizedLandmark) {
+  const ab = {
+    x: a.x - b.x,
+    y: a.y - b.y,
+    z: ((a.z ?? 0) - (b.z ?? 0)) * 0.65,
+  }
+  const cb = {
+    x: c.x - b.x,
+    y: c.y - b.y,
+    z: ((c.z ?? 0) - (b.z ?? 0)) * 0.65,
+  }
+  const abLength = Math.hypot(ab.x, ab.y, ab.z)
+  const cbLength = Math.hypot(cb.x, cb.y, cb.z)
+
+  if (abLength <= 0.00001 || cbLength <= 0.00001) {
+    return Math.PI
+  }
+
+  const dot = (ab.x * cb.x + ab.y * cb.y + ab.z * cb.z) / (abLength * cbLength)
+  return Math.acos(clamp(dot, -1, 1))
+}
+
+function normalizeAngle(value: number) {
+  let normalized = value
+
+  while (normalized > Math.PI) {
+    normalized -= Math.PI * 2
+  }
+
+  while (normalized < -Math.PI) {
+    normalized += Math.PI * 2
+  }
+
+  return normalized
+}
+
 function applyAvatarRestArms(rig: AvatarRig, response: number) {
   applyAvatarRestArm(rig, 'left', response)
   applyAvatarRestArm(rig, 'right', response)
+  applyAvatarRestFingers(rig, 'left', response)
+  applyAvatarRestFingers(rig, 'right', response)
 }
 
-function applyAvatarRestArm(rig: AvatarRig, side: 'left' | 'right', response: number) {
+function applyAvatarRestArm(rig: AvatarRig, side: AvatarSide, response: number) {
   const sideSign = side === 'left' ? -1 : 1
   const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
   const lowerName = side === 'left' ? VRMHumanBoneName.LeftLowerArm : VRMHumanBoneName.RightLowerArm
@@ -2831,6 +3053,20 @@ function applyAvatarRestArm(rig: AvatarRig, side: 'left' | 'right', response: nu
     y: 0,
     z: sideSign * 0.08,
   }, response)
+}
+
+function applyAvatarRestFingers(rig: AvatarRig, side: AvatarSide, response: number) {
+  if (!rig.currentVrm) {
+    return
+  }
+
+  for (const finger of ['thumb', 'index', 'middle', 'ring', 'little'] as const) {
+    for (const bone of getAvatarFingerBones(side, finger)) {
+      if (bone) {
+        rotateAvatarBone(rig, bone, '', { x: 0, y: 0, z: 0 }, response)
+      }
+    }
+  }
 }
 
 function rotateAvatarBone(
