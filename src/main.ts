@@ -692,6 +692,13 @@ app.innerHTML = `
               </label>
             </div>
             <div class="option-row">
+              <span>Маска поверх модели</span>
+              <label class="switch">
+                <input id="avatarFaceOverlayToggle" type="checkbox" checked />
+                <span></span>
+              </label>
+            </div>
+            <div class="option-row">
               <span>Руки</span>
               <label class="switch">
                 <input id="avatarHandsToggle" type="checkbox" checked />
@@ -1161,6 +1168,7 @@ const avatarBackgroundFile = getElement<HTMLInputElement>('avatarBackgroundFile'
 const avatarBackgroundClearButton = getElement<HTMLButtonElement>('avatarBackgroundClearButton')
 const avatarState = getElement<HTMLElement>('avatarState')
 const avatarFaceToggle = getElement<HTMLInputElement>('avatarFaceToggle')
+const avatarFaceOverlayToggle = getElement<HTMLInputElement>('avatarFaceOverlayToggle')
 const avatarHandsToggle = getElement<HTMLInputElement>('avatarHandsToggle')
 const avatarTorsoToggle = getElement<HTMLInputElement>('avatarTorsoToggle')
 const avatarSmoothingSlider = getElement<HTMLInputElement>('avatarSmoothing')
@@ -1290,6 +1298,7 @@ let hudVisible = localStorage.getItem('xedoc-hands-hud') !== 'off'
 let performanceMode: PerformanceMode = readPerformanceMode()
 let avatarEnabled = localStorage.getItem('xedoc-hands-avatar-enabled') === 'true'
 let avatarFaceEnabled = localStorage.getItem('xedoc-hands-avatar-face') !== 'off'
+let avatarFaceOverlayEnabled = localStorage.getItem('xedoc-hands-avatar-face-overlay') !== 'off'
 let avatarHandsEnabled = localStorage.getItem('xedoc-hands-avatar-hands') !== 'off'
 let avatarTorsoEnabled = localStorage.getItem('xedoc-hands-avatar-torso') !== 'off'
 let avatarSmoothing = readAvatarSmoothing()
@@ -1385,6 +1394,7 @@ setAvatarHeadPitchScale(avatarHeadPitchScale)
 setAvatarBackgroundImage(avatarBackgroundImage)
 setAvatarEnabled(avatarEnabled)
 setMaskMode(maskMode)
+setAvatarFaceOverlayEnabled(avatarFaceOverlayEnabled)
 setMaskStability(maskStability)
 setMaskEdgeFeather(maskEdgeFeather)
 setMaskEdgeFeatherEnabled(maskEdgeFeatherEnabled)
@@ -1492,6 +1502,11 @@ avatarToggle.addEventListener('change', () => {
 avatarFaceToggle.addEventListener('change', () => {
   setAvatarFaceEnabled(avatarFaceToggle.checked)
   trackToggle('avatar_face_toggled', avatarFaceEnabled)
+})
+
+avatarFaceOverlayToggle.addEventListener('change', () => {
+  setAvatarFaceOverlayEnabled(avatarFaceOverlayToggle.checked)
+  trackToggle('avatar_face_overlay_toggled', avatarFaceOverlayEnabled)
 })
 
 avatarHandsToggle.addEventListener('change', () => {
@@ -2152,7 +2167,9 @@ function processResult(
 ) {
   context.clearRect(0, 0, canvas.width, canvas.height)
   updateFaceSwapBridge(now)
-  drawFaceSwapFrame()
+  if (shouldDrawFaceOverlayOverAvatar()) {
+    drawFaceSwapFrame()
+  }
 
   const detected = new Set<GestureKey>()
   const handLandmarks = handTrackingEnabled ? (result?.landmarks ?? []) : []
@@ -2411,7 +2428,9 @@ function processFaceResult(result: FaceLandmarkerResult, now: number, detected: 
 
   setFaceState('ready', 'В кадре')
 
-  if (maskEnabled && maskMode === 'mesh' && hasMeshMaskLayer()) {
+  if (!shouldDrawFaceOverlayOverAvatar()) {
+    rememberMaskFace(face, now)
+  } else if (maskEnabled && maskMode === 'mesh' && hasMeshMaskLayer()) {
     drawMasksForFaces(rankedFaces, now)
   } else if (maskEnabled && maskMode === 'faceswap') {
     rememberMaskFace(face, now)
@@ -2820,7 +2839,7 @@ function applyAvatarFace(rig: AvatarRig, faceResult: FaceLandmarkerResult | null
   const pitchOffset = (avatarHeadPitchOffset * Math.PI) / 180
   const pitch = (pose ? pose.pitch : Math.sin(idle * 0.9) * 0.025) * (avatarHeadPitchScale / 100) + pitchOffset
   const rollOffset = (-avatarHeadRollOffset * Math.PI) / 180
-  const roll = (face ? getFaceRoll(face) : Math.sin(idle * 0.6) * 0.02) + rollOffset
+  const roll = (face ? -getFaceRoll(face) : Math.sin(idle * 0.6) * 0.02) + rollOffset
   const response = getAvatarResponse()
 
   rotateAvatarBone(rig, VRMHumanBoneName.Head, 'head', {
@@ -5153,6 +5172,16 @@ function setAvatarFaceEnabled(next: boolean) {
   avatarFaceEnabled = next
   localStorage.setItem('xedoc-hands-avatar-face', next ? 'on' : 'off')
   avatarFaceToggle.checked = next
+}
+
+function setAvatarFaceOverlayEnabled(next: boolean) {
+  avatarFaceOverlayEnabled = next
+  localStorage.setItem('xedoc-hands-avatar-face-overlay', next ? 'on' : 'off')
+  avatarFaceOverlayToggle.checked = next
+}
+
+function shouldDrawFaceOverlayOverAvatar() {
+  return !avatarEnabled || avatarFaceOverlayEnabled
 }
 
 function setAvatarHandsEnabled(next: boolean) {
