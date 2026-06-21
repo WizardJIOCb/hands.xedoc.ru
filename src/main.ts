@@ -2955,6 +2955,50 @@ function applyAvatarArmFromHandLandmarks(
     y: clamp(sideSign * forwardDepth * 0.95, -0.62, 0.62),
     z: clamp(sideSign * normalizeAngle(fingerAngle - palmAngle) * 0.58, -0.68, 0.68),
   }, response)
+  applyAvatarScreenHandCorrection(rig, side, palmCenter, response)
+}
+
+function applyAvatarScreenHandCorrection(
+  rig: AvatarRig,
+  side: AvatarSide,
+  target: NormalizedLandmark,
+  response: number,
+) {
+  const handName = side === 'left' ? VRMHumanBoneName.LeftHand : VRMHumanBoneName.RightHand
+  const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
+  const lowerName = side === 'left' ? VRMHumanBoneName.LeftLowerArm : VRMHumanBoneName.RightLowerArm
+  const hand = rig.currentVrm?.humanoid.getNormalizedBoneNode(handName) ?? rig.fallbackBones[`${side}Hand`]
+  const upper = rig.currentVrm?.humanoid.getNormalizedBoneNode(upperName) ?? rig.fallbackBones[`${side}UpperArm`]
+  const lower = rig.currentVrm?.humanoid.getNormalizedBoneNode(lowerName) ?? rig.fallbackBones[`${side}LowerArm`]
+
+  if (!hand || !upper || !lower) {
+    return
+  }
+
+  hand.updateWorldMatrix(true, false)
+  const position = new THREE.Vector3()
+  hand.getWorldPosition(position)
+  position.project(rig.camera)
+
+  if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) {
+    return
+  }
+
+  const renderedX = (position.x + 1) / 2
+  const renderedY = (1 - position.y) / 2
+  const targetX = target.x
+  const targetY = target.y
+  const dx = clamp(targetX - renderedX, -0.42, 0.42)
+  const dy = clamp(targetY - renderedY, -0.42, 0.42)
+  const sideSign = side === 'left' ? -1 : 1
+  const amount = clamp(response * 0.58, 0.04, 0.42)
+  const targetUpperZ = clamp(upper.rotation.z + sideSign * dx * 1.35 - dy * 0.72, -1.55, 1.55)
+  const targetUpperX = clamp(upper.rotation.x - dy * 0.95, -1.35, 0.9)
+  const targetLowerX = clamp(lower.rotation.x + Math.abs(dx) * 0.28 - dy * 0.72, -0.24, 1.38)
+
+  upper.rotation.z = lerp(upper.rotation.z, targetUpperZ, amount)
+  upper.rotation.x = lerp(upper.rotation.x, targetUpperX, amount)
+  lower.rotation.x = lerp(lower.rotation.x, targetLowerX, amount)
 }
 
 function getAvatarPoseArmForHand(pose: NormalizedLandmark[] | undefined, displayPalmX: number) {
