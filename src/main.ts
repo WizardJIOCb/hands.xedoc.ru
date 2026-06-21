@@ -660,7 +660,7 @@ app.innerHTML = `
                 <label class="input-label" for="avatarSmoothing">Сглаживание</label>
                 <strong id="avatarSmoothingValue">35%</strong>
               </div>
-              <input id="avatarSmoothing" class="range-input" type="range" min="0" max="90" step="1" value="35" />
+              <input id="avatarSmoothing" class="range-input" type="range" min="0" max="180" step="1" value="35" />
               <div class="range-captions">
                 <span>Быстрее</span>
                 <span>Плавнее</span>
@@ -689,7 +689,7 @@ app.innerHTML = `
                 <label class="input-label" for="avatarHeight">Высота</label>
                 <strong id="avatarHeightValue">0</strong>
               </div>
-              <input id="avatarHeight" class="range-input" type="range" min="-300" max="300" step="1" value="0" />
+              <input id="avatarHeight" class="range-input" type="range" min="-600" max="600" step="1" value="0" />
             </div>
             <div class="mask-stability">
               <div class="mask-stability-head">
@@ -704,7 +704,18 @@ app.innerHTML = `
             </div>
             <div class="mask-stability">
               <div class="mask-stability-head">
-                <label class="input-label" for="avatarHeadPitchScale">Наклон вверх/вниз</label>
+                <label class="input-label" for="avatarHeadPitchOffset">Сдвиг вверх/вниз</label>
+                <strong id="avatarHeadPitchOffsetValue">0°</strong>
+              </div>
+              <input id="avatarHeadPitchOffset" class="range-input" type="range" min="-30" max="30" step="1" value="0" />
+              <div class="range-captions">
+                <span>Вниз</span>
+                <span>Вверх</span>
+              </div>
+            </div>
+            <div class="mask-stability">
+              <div class="mask-stability-head">
+                <label class="input-label" for="avatarHeadPitchScale">Чувствит. вверх/вниз</label>
                 <strong id="avatarHeadPitchScaleValue">100%</strong>
               </div>
               <input id="avatarHeadPitchScale" class="range-input" type="range" min="50" max="250" step="5" value="100" />
@@ -1070,6 +1081,8 @@ const avatarHeightSlider = getElement<HTMLInputElement>('avatarHeight')
 const avatarHeightValue = getElement<HTMLElement>('avatarHeightValue')
 const avatarHeadRollOffsetSlider = getElement<HTMLInputElement>('avatarHeadRollOffset')
 const avatarHeadRollOffsetValue = getElement<HTMLElement>('avatarHeadRollOffsetValue')
+const avatarHeadPitchOffsetSlider = getElement<HTMLInputElement>('avatarHeadPitchOffset')
+const avatarHeadPitchOffsetValue = getElement<HTMLElement>('avatarHeadPitchOffsetValue')
 const avatarHeadPitchScaleSlider = getElement<HTMLInputElement>('avatarHeadPitchScale')
 const avatarHeadPitchScaleValue = getElement<HTMLElement>('avatarHeadPitchScaleValue')
 const currentGesture = getElement<HTMLElement>('currentGesture')
@@ -1183,6 +1196,7 @@ let avatarSmileSensitivity = readAvatarSmileSensitivity()
 let avatarScale = readAvatarScale()
 let avatarHeight = readAvatarHeight()
 let avatarHeadRollOffset = readAvatarHeadRollOffset()
+let avatarHeadPitchOffset = readAvatarHeadPitchOffset()
 let avatarHeadPitchScale = readAvatarHeadPitchScale()
 let avatarBackgroundImage = readAvatarBackgroundImage()
 let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
@@ -1258,6 +1272,7 @@ setAvatarSmileSensitivity(avatarSmileSensitivity)
 setAvatarScale(avatarScale)
 setAvatarHeight(avatarHeight)
 setAvatarHeadRollOffset(avatarHeadRollOffset)
+setAvatarHeadPitchOffset(avatarHeadPitchOffset)
 setAvatarHeadPitchScale(avatarHeadPitchScale)
 setAvatarBackgroundImage(avatarBackgroundImage)
 setAvatarEnabled(avatarEnabled)
@@ -1407,6 +1422,14 @@ avatarHeadRollOffsetSlider.addEventListener('input', () => {
 
 avatarHeadRollOffsetSlider.addEventListener('change', () => {
   trackMetrika('avatar_setting_changed', { setting: 'headRollOffset', value: avatarHeadRollOffset })
+})
+
+avatarHeadPitchOffsetSlider.addEventListener('input', () => {
+  setAvatarHeadPitchOffset(Number(avatarHeadPitchOffsetSlider.value))
+})
+
+avatarHeadPitchOffsetSlider.addEventListener('change', () => {
+  trackMetrika('avatar_setting_changed', { setting: 'headPitchOffset', value: avatarHeadPitchOffset })
 })
 
 avatarHeadPitchScaleSlider.addEventListener('input', () => {
@@ -2591,7 +2614,8 @@ function applyAvatarFace(rig: AvatarRig, faceResult: FaceLandmarkerResult | null
   const idle = performance.now() * 0.001
   const pose = face ? getHeadPose(face) : null
   const yaw = pose ? (mirrorMode ? -pose.yaw : pose.yaw) : Math.sin(idle * 0.7) * 0.03
-  const pitch = (pose ? pose.pitch : Math.sin(idle * 0.9) * 0.025) * (avatarHeadPitchScale / 100)
+  const pitchOffset = (avatarHeadPitchOffset * Math.PI) / 180
+  const pitch = (pose ? pose.pitch : Math.sin(idle * 0.9) * 0.025) * (avatarHeadPitchScale / 100) + pitchOffset
   const rollOffset = (avatarHeadRollOffset * Math.PI) / 180
   const roll = (face ? getFaceRoll(face) : Math.sin(idle * 0.6) * 0.02) + rollOffset
   const response = getAvatarResponse()
@@ -2911,7 +2935,11 @@ function prepareAvatarObjectFrame(object: THREE.Object3D, fallback = false) {
 }
 
 function getAvatarResponse() {
-  return 1 - avatarSmoothing / 120
+  if (avatarSmoothing <= 90) {
+    return 1 - avatarSmoothing / 120
+  }
+
+  return 0.25 - ((avatarSmoothing - 90) / 90) * 0.17
 }
 
 function getBlendshapeScore(result: FaceLandmarkerResult | null, name: string) {
@@ -4250,7 +4278,7 @@ function setAvatarTorsoEnabled(next: boolean) {
 }
 
 function setAvatarSmoothing(next: number) {
-  avatarSmoothing = clamp(Math.round(next), 0, 90)
+  avatarSmoothing = clamp(Math.round(next), 0, 180)
   localStorage.setItem('xedoc-hands-avatar-smoothing', String(avatarSmoothing))
   avatarSmoothingSlider.value = String(avatarSmoothing)
   avatarSmoothingValue.textContent = `${avatarSmoothing}%`
@@ -4272,7 +4300,7 @@ function setAvatarScale(next: number) {
 }
 
 function setAvatarHeight(next: number) {
-  avatarHeight = clamp(Math.round(next), -300, 300)
+  avatarHeight = clamp(Math.round(next), -600, 600)
   localStorage.setItem('xedoc-hands-avatar-height', String(avatarHeight))
   avatarHeightSlider.value = String(avatarHeight)
   avatarHeightValue.textContent = signedValue(avatarHeight)
@@ -4284,6 +4312,13 @@ function setAvatarHeadRollOffset(next: number) {
   localStorage.setItem('xedoc-hands-avatar-head-roll-offset', String(avatarHeadRollOffset))
   avatarHeadRollOffsetSlider.value = String(avatarHeadRollOffset)
   avatarHeadRollOffsetValue.textContent = `${signedValue(avatarHeadRollOffset)}°`
+}
+
+function setAvatarHeadPitchOffset(next: number) {
+  avatarHeadPitchOffset = clamp(Math.round(next), -30, 30)
+  localStorage.setItem('xedoc-hands-avatar-head-pitch-offset', String(avatarHeadPitchOffset))
+  avatarHeadPitchOffsetSlider.value = String(avatarHeadPitchOffset)
+  avatarHeadPitchOffsetValue.textContent = `${signedValue(avatarHeadPitchOffset)}°`
 }
 
 function setAvatarHeadPitchScale(next: number) {
@@ -4637,7 +4672,7 @@ function isMobileDevice() {
 function readAvatarSmoothing() {
   const raw = localStorage.getItem('xedoc-hands-avatar-smoothing')
   const saved = raw === null ? Number.NaN : Number(raw)
-  return Number.isFinite(saved) ? clamp(Math.round(saved), 0, 90) : 35
+  return Number.isFinite(saved) ? clamp(Math.round(saved), 0, 180) : 35
 }
 
 function readAvatarSmileSensitivity() {
@@ -4655,11 +4690,17 @@ function readAvatarScale() {
 function readAvatarHeight() {
   const raw = localStorage.getItem('xedoc-hands-avatar-height')
   const saved = raw === null ? Number.NaN : Number(raw)
-  return Number.isFinite(saved) ? clamp(Math.round(saved), -300, 300) : 0
+  return Number.isFinite(saved) ? clamp(Math.round(saved), -600, 600) : 0
 }
 
 function readAvatarHeadRollOffset() {
   const raw = localStorage.getItem('xedoc-hands-avatar-head-roll-offset')
+  const saved = raw === null ? Number.NaN : Number(raw)
+  return Number.isFinite(saved) ? clamp(Math.round(saved), -30, 30) : 0
+}
+
+function readAvatarHeadPitchOffset() {
+  const raw = localStorage.getItem('xedoc-hands-avatar-head-pitch-offset')
   const saved = raw === null ? Number.NaN : Number(raw)
   return Number.isFinite(saved) ? clamp(Math.round(saved), -30, 30) : 0
 }
