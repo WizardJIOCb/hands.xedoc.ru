@@ -1966,7 +1966,9 @@ function predictFrame(now: number) {
     lastVideoTime = video.currentTime
     const handResult = handTrackingEnabled ? recognizer.recognizeForVideo(video, now) : null
     const faceResult = faceTrackingEnabled ? faceLandmarker.detectForVideo(video, now) : null
-    const poseResult = avatarEnabled && avatarTorsoEnabled && poseLandmarker ? poseLandmarker.detectForVideo(video, now) : null
+    const poseResult = avatarEnabled && (avatarTorsoEnabled || avatarHandsEnabled) && poseLandmarker
+      ? poseLandmarker.detectForVideo(video, now)
+      : null
     processResult(handResult, faceResult, poseResult, now)
     updateFps(now)
   }
@@ -2424,9 +2426,9 @@ function updateAvatar(
   }
 
   const face = avatarFaceEnabled ? faceResult?.faceLandmarks?.[0] : undefined
-  const pose = avatarTorsoEnabled ? poseResult?.landmarks?.[0] : undefined
+  const pose = poseResult?.landmarks?.[0]
   applyAvatarFace(rig, faceResult, face)
-  applyAvatarTorso(rig, pose)
+  applyAvatarTorso(rig, avatarTorsoEnabled ? pose : undefined)
   applyAvatarHands(rig, handLandmarks, pose)
   renderAvatarScene(now)
 }
@@ -2717,11 +2719,11 @@ function applyAvatarHands(rig: AvatarRig, hands: NormalizedLandmark[][], pose?: 
 
   if (hands.length > 0) {
     for (const hand of hands.slice(0, 2)) {
-      const center = handCenter(hand)
-      const isLeft = center.x < 0.5
-      const side: AvatarSide = isLeft ? 'left' : 'right'
+      const displayCenter = getAvatarHandDisplayCenter(hand)
+      const side = getAvatarSideForDisplayX(displayCenter.x)
+      const isLeft = side === 'left'
 
-      applyAvatarArmFromHandLandmarks(rig, side, hand, response)
+      applyAvatarArmFromHandLandmarks(rig, side, hand, pose, response)
 
       if (isLeft) {
         leftApplied = true
@@ -2816,8 +2818,8 @@ function applyAvatarArmFromHand(
   response: number,
 ) {
   const sideSign = side === 'left' ? -1 : 1
-  const mirrorSign = mirrorMode ? -1 : 1
-  const x = (center.x - 0.5) * mirrorSign
+  const displayX = toAvatarDisplayX(center.x)
+  const x = displayX - 0.5
   const y = center.y - 0.5 + getAvatarHandHeightOffset()
   const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
   const lowerName = side === 'left' ? VRMHumanBoneName.LeftLowerArm : VRMHumanBoneName.RightLowerArm
@@ -2834,10 +2836,57 @@ function applyAvatarArmFromHand(
   }, response)
 }
 
+function getAvatarHandDisplayCenter(landmarks: NormalizedLandmark[]) {
+  const center = handCenter(landmarks)
+
+  return {
+    ...center,
+    x: toAvatarDisplayX(center.x),
+  }
+}
+
+function getAvatarSideForDisplayX(x: number): AvatarSide {
+  const visibleSide: AvatarSide = x < 0.5 ? 'left' : 'right'
+
+  if (!mirrorMode) {
+    return visibleSide
+  }
+
+  return visibleSide === 'left' ? 'right' : 'left'
+}
+
+function getAvatarHandTrackingFrame(pose: NormalizedLandmark[] | undefined) {
+  const leftShoulder = pose?.[11]
+  const rightShoulder = pose?.[12]
+
+  if (isReliablePoseChain(leftShoulder, rightShoulder)) {
+    const leftX = toAvatarDisplayX(leftShoulder!.x)
+    const rightX = toAvatarDisplayX(rightShoulder!.x)
+    const width = clamp(Math.abs(rightX - leftX) * 1.55, 0.22, 0.58)
+
+    return {
+      x: (leftX + rightX) / 2,
+      y: (leftShoulder!.y + rightShoulder!.y) / 2 + 0.04,
+      width,
+    }
+  }
+
+  return {
+    x: 0.5,
+    y: 0.56,
+    width: 0.34,
+  }
+}
+
+function toAvatarDisplayX(x: number) {
+  return mirrorMode ? 1 - x : x
+}
+
 function applyAvatarArmFromHandLandmarks(
   rig: AvatarRig,
   side: AvatarSide,
   landmarks: NormalizedLandmark[],
+  pose: NormalizedLandmark[] | undefined,
   response: number,
 ) {
   const wrist = landmarks[0]
@@ -2853,7 +2902,7 @@ function applyAvatarArmFromHandLandmarks(
   }
 
   const sideSign = side === 'left' ? -1 : 1
-  const mirrorSign = mirrorMode ? -1 : 1
+  const frame = getAvatarHandTrackingFrame(pose)
   const palmCenter = {
     x: (wrist.x + indexBase.x + middleBase.x + ringBase.x + littleBase.x) / 5,
     y: (wrist.y + indexBase.y + middleBase.y + ringBase.y + littleBase.y) / 5,
@@ -2866,30 +2915,35 @@ function applyAvatarArmFromHandLandmarks(
       littleBase.visibility ?? 1,
     ),
   }
-  const x = (palmCenter.x - 0.5) * mirrorSign
-  const y = palmCenter.y - 0.52 + getAvatarHandHeightOffset()
-  const palmVectorX = (middleBase.x - wrist.x) * mirrorSign
+  const displayPalmX = toAvatarDisplayX(palmCenter.x)
+  const displayWristX = toAvatarDisplayX(wrist.x)
+  const displayMiddleBaseX = toAvatarDisplayX(middleBase.x)
+  const displayMiddleTipX = toAvatarDisplayX(middleTip.x)
+  const relativeX = clamp((displayPalmX - frame.x) / frame.width, -1.9, 1.9)
+  const relativeY = clamp((frame.y - palmCenter.y - getAvatarHandHeightOffset() * 0.42) / frame.width, -1.1, 2.3)
+  const screenSideSign = displayPalmX < frame.x ? -1 : 1
+  const palmVectorX = displayMiddleBaseX - displayWristX
   const palmVectorY = middleBase.y - wrist.y
-  const fingerVectorX = (middleTip.x - middleBase.x) * mirrorSign
+  const fingerVectorX = displayMiddleTipX - displayMiddleBaseX
   const fingerVectorY = middleTip.y - middleBase.y
   const palmAngle = Math.atan2(palmVectorY, palmVectorX)
   const fingerAngle = Math.atan2(fingerVectorY, fingerVectorX)
-  const verticalReach = clamp((0.72 - palmCenter.y) * 2.1, -0.12, 1.2)
-  const sideReach = clamp(Math.abs(x) * 2.6, 0, 1.18)
+  const verticalReach = clamp(relativeY, -0.18, 1.35)
+  const sideReach = clamp(Math.abs(relativeX), 0, 1.28)
   const forwardDepth = clamp(-palmCenter.z * 1.25, -0.38, 0.52)
   const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
   const lowerName = side === 'left' ? VRMHumanBoneName.LeftLowerArm : VRMHumanBoneName.RightLowerArm
   const handName = side === 'left' ? VRMHumanBoneName.LeftHand : VRMHumanBoneName.RightHand
 
   rotateAvatarBone(rig, upperName, `${side}UpperArm`, {
-    x: clamp(0.18 - verticalReach * 0.86 - y * 0.28, -1.18, 0.58),
-    y: clamp(sideSign * (forwardDepth * 0.9 + x * 0.22), -0.7, 0.7),
-    z: clamp(sideSign * (0.28 + sideReach * 1.05 + x * 0.5), -1.45, 1.45),
+    x: clamp(0.14 - verticalReach * 0.92, -1.24, 0.62),
+    y: clamp(sideSign * (forwardDepth * 0.85 + relativeX * 0.2), -0.72, 0.72),
+    z: clamp(sideSign * (0.32 + sideReach * 1.0 + Math.abs(relativeX) * 0.22), -1.48, 1.48),
   }, response)
   rotateAvatarBone(rig, lowerName, `${side}LowerArm`, {
-    x: clamp(-0.18 - verticalReach * 1.08 + y * 0.24, -1.28, 0.34),
+    x: clamp(-0.2 - verticalReach * 1.08, -1.34, 0.38),
     y: clamp(sideSign * forwardDepth * 0.55, -0.48, 0.48),
-    z: clamp(sideSign * (x * 1.35 + sideReach * 0.34), -1.08, 1.08),
+    z: clamp(sideSign * (screenSideSign * sideSign * sideReach * 0.54 + relativeX * 0.52), -1.08, 1.08),
   }, response)
   rotateAvatarBone(rig, handName, `${side}Hand`, {
     x: clamp(-0.12 - palmVectorY * 2.2 - verticalReach * 0.26, -0.9, 0.62),
@@ -2932,10 +2986,9 @@ function applyAvatarPalmPose(
   }
 
   const sideSign = side === 'left' ? -1 : 1
-  const mirrorSign = mirrorMode ? -1 : 1
   const palmLift = middleBase.y - wrist.y
   const palmTwist = (middleBase.z ?? 0) - (wrist.z ?? 0)
-  const palmSpread = (indexBase.x - littleBase.x) * mirrorSign
+  const palmSpread = toAvatarDisplayX(indexBase.x) - toAvatarDisplayX(littleBase.x)
   const handName = side === 'left' ? VRMHumanBoneName.LeftHand : VRMHumanBoneName.RightHand
 
   rotateAvatarBone(rig, handName, `${side}Hand`, {
