@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/generate-mask-presets.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/generate-mask-presets.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },

@@ -716,6 +716,20 @@ svg {
   margin-top: 12px;
 }
 
+.mask-preset-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.mask-preset-button {
+  overflow: hidden;
+  padding: 0 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mask-mode-button {
   min-height: 36px;
   border: 1px solid var(--border);

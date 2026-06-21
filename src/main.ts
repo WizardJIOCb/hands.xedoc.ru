@@ -1,4 +1,5 @@
 ﻿import './style.css'
+import { maskPresets } from './generated/maskPresets'
 import {
   DrawingUtils,
   FaceLandmarker,
@@ -775,6 +776,16 @@ app.innerHTML = `
             <input id="maskFile" class="file-input" type="file" accept="image/*" />
             <p class="mask-state" id="maskState">Не выбрана</p>
           </div>
+          <div class="mask-preset-list" id="maskPresetList" aria-label="Готовые маски">
+            <button class="mask-mode-button mask-preset-button" data-mask-preset="uploaded" type="button">Загруженная</button>
+            ${maskPresets.map((preset) => `
+              <button
+                class="mask-mode-button mask-preset-button"
+                data-mask-preset="${preset.id}"
+                type="button"
+              >${preset.label}</button>
+            `).join('')}
+          </div>
           <div class="mask-mode" id="maskModeTabs" aria-label="Режим маски">
             <button class="mask-mode-button" data-mask-mode="mesh" type="button">Mesh</button>
             <button class="mask-mode-button" data-mask-mode="faceswap" type="button">FaceSwap</button>
@@ -1132,6 +1143,7 @@ const presetTitle = getElement<HTMLElement>('presetTitle')
 const presetTabs = getElement<HTMLDivElement>('presetTabs')
 const maskToggle = getElement<HTMLInputElement>('maskToggle')
 const maskFile = getElement<HTMLInputElement>('maskFile')
+const maskPresetButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-mask-preset]'))
 const maskState = getElement<HTMLElement>('maskState')
 const maskPreview = getElement<HTMLImageElement>('maskPreview')
 const maskSlotsBlock = getElement<HTMLDivElement>('maskSlotsBlock')
@@ -1255,6 +1267,12 @@ let maskTintEnabled = readMaskSettingEnabled('tint')
 let maskLayer: FaceMaskLayer | null = null
 let maskImageUrl: string | null = null
 let maskSourceBlob: Blob | null = null
+let activeMaskPresetId: string | null = null
+let uploadedMaskOption: {
+  layer: FaceMaskLayer | null
+  imageUrl: string
+  sourceBlob: Blob
+} | null = null
 const extraMaskSlots: FaceMaskSlot[] = Array.from({ length: faceMaskSlotCount - 1 }, () => ({
   layer: null,
   imageUrl: null,
@@ -1572,6 +1590,23 @@ maskFile.addEventListener('change', () => {
   }
 })
 
+for (const button of maskPresetButtons) {
+  button.addEventListener('click', () => {
+    const presetId = button.dataset.maskPreset
+
+    if (presetId === 'uploaded') {
+      applyUploadedMaskOption()
+      return
+    }
+
+    const preset = maskPresets.find((item) => item.id === presetId)
+
+    if (preset) {
+      loadMaskPreset(preset)
+    }
+  })
+}
+
 maskSlotFiles.forEach((input, index) => {
   input.addEventListener('change', () => {
     const file = input.files?.[0]
@@ -1737,6 +1772,10 @@ window.addEventListener('resize', syncCanvasSize)
 window.addEventListener('beforeunload', () => {
   if (maskImageUrl) {
     URL.revokeObjectURL(maskImageUrl)
+  }
+
+  if (uploadedMaskOption?.imageUrl && uploadedMaskOption.imageUrl !== maskImageUrl) {
+    URL.revokeObjectURL(uploadedMaskOption.imageUrl)
   }
 
   extraMaskSlots.forEach(revokeMaskSlot)
@@ -4565,7 +4604,10 @@ function loadMaskFile(file: File, faceRank = 0) {
   const nextImage = new Image()
 
   nextImage.addEventListener('load', () => {
-    void prepareMaskLayer(nextImage, nextUrl, file, faceRank)
+    void prepareMaskLayer(nextImage, nextUrl, file, faceRank, {
+      source: 'upload',
+      presetId: null,
+    })
   })
 
   nextImage.addEventListener('error', () => {
@@ -4580,7 +4622,82 @@ function loadMaskFile(file: File, faceRank = 0) {
   nextImage.src = nextUrl
 }
 
-async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string, sourceBlob: Blob, faceRank = 0) {
+async function loadMaskPreset(preset: (typeof maskPresets)[number]) {
+  setMaskLoadState(0, `Загрузка: ${preset.label}`)
+  trackMetrika('mask_preset_selected', {
+    preset: preset.id,
+  })
+
+  try {
+    const response = await fetch(preset.url)
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+
+    const blob = await response.blob()
+    const imageUrl = URL.createObjectURL(blob)
+    const image = new Image()
+
+    image.addEventListener('load', () => {
+      void prepareMaskLayer(image, imageUrl, blob, 0, {
+        source: 'preset',
+        presetId: preset.id,
+      })
+    })
+
+    image.addEventListener('error', () => {
+      URL.revokeObjectURL(imageUrl)
+      setMaskLoadState(0, 'Не загрузилась')
+      trackMetrika('mask_upload_error', {
+        slot: 'main',
+        reason: 'preset_image_load',
+        preset: preset.id,
+      })
+    })
+
+    image.src = imageUrl
+  } catch (error) {
+    console.error(error)
+    setMaskLoadState(0, 'Не загрузилась')
+    trackMetrika('mask_upload_error', {
+      slot: 'main',
+      reason: 'preset_fetch',
+      preset: preset.id,
+    })
+  }
+}
+
+function applyUploadedMaskOption() {
+  if (!uploadedMaskOption) {
+    setMaskLoadState(0, 'Нет загруженной')
+    return
+  }
+
+  if (maskImageUrl && maskImageUrl !== uploadedMaskOption.imageUrl && maskImageUrl.startsWith('blob:')) {
+    URL.revokeObjectURL(maskImageUrl)
+  }
+
+  resetFaceSwapFrame()
+  maskLayer = uploadedMaskOption.layer
+  maskImageUrl = uploadedMaskOption.imageUrl
+  maskSourceBlob = uploadedMaskOption.sourceBlob
+  activeMaskPresetId = 'uploaded'
+  maskPreview.src = uploadedMaskOption.imageUrl
+  setMaskEnabled(true)
+  updateMaskPresetButtons()
+  trackMetrika('mask_preset_selected', {
+    preset: 'uploaded',
+  })
+}
+
+async function prepareMaskLayer(
+  image: HTMLImageElement,
+  imageUrl: string,
+  sourceBlob: Blob,
+  faceRank = 0,
+  options: { source: 'upload' | 'preset'; presetId: string | null } = { source: 'upload', presetId: null },
+) {
   const analyticsSlot = getMaskSlotAnalyticsName(faceRank)
   setMaskLoadState(faceRank, 'Ищем лицо')
 
@@ -4649,7 +4766,7 @@ async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string, sourc
     return
   }
 
-  if (maskImageUrl) {
+  if (maskImageUrl && maskImageUrl !== uploadedMaskOption?.imageUrl && maskImageUrl.startsWith('blob:')) {
     URL.revokeObjectURL(maskImageUrl)
   }
 
@@ -4658,8 +4775,23 @@ async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string, sourc
   maskLayer = layer
   maskImageUrl = imageUrl
   maskSourceBlob = sourceBlob
+  activeMaskPresetId = options.source === 'preset' ? options.presetId : 'uploaded'
+
+  if (options.source === 'upload') {
+    if (uploadedMaskOption?.imageUrl && uploadedMaskOption.imageUrl !== imageUrl) {
+      URL.revokeObjectURL(uploadedMaskOption.imageUrl)
+    }
+
+    uploadedMaskOption = {
+      layer,
+      imageUrl,
+      sourceBlob,
+    }
+  }
+
   maskPreview.src = imageUrl
   setMaskEnabled(true)
+  updateMaskPresetButtons()
   trackMetrika('mask_changed', {
     slot: analyticsSlot,
     mode: maskMode,
@@ -4667,6 +4799,8 @@ async function prepareMaskLayer(image: HTMLImageElement, imageUrl: string, sourc
     height: image.naturalHeight,
     faceDetected: Boolean(layer),
     maskCount: getLoadedMaskCount(),
+    source: options.source,
+    preset: options.presetId ?? '',
   })
 
   if (!landmarks) {
@@ -5055,6 +5189,7 @@ function updateMaskState() {
   const meshReady = hasMeshMaskLayer()
   const canEnable = maskMode === 'faceswap' ? hasMainImage : meshReady
 
+  updateMaskPresetButtons()
   maskToggle.disabled = !canEnable
   maskToggle.checked = canEnable && maskEnabled
   maskPreview.classList.toggle('is-visible', hasMainImage)
@@ -5093,6 +5228,15 @@ function updateMaskState() {
 
   const maskCount = Number(Boolean(maskLayer)) + extraMaskSlots.filter((slot) => Boolean(slot.layer)).length
   maskState.textContent = maskCount > 1 ? `Mesh: ${maskCount} маски` : 'Mesh включена'
+}
+
+function updateMaskPresetButtons() {
+  for (const button of maskPresetButtons) {
+    const presetId = button.dataset.maskPreset ?? ''
+    const isUploaded = presetId === 'uploaded'
+    button.disabled = isUploaded && !uploadedMaskOption
+    button.classList.toggle('is-active', presetId === activeMaskPresetId)
+  }
 }
 
 function hasMeshMaskLayer() {
