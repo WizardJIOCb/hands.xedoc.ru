@@ -174,6 +174,13 @@ type AvatarRig = {
   fallbackBones: Record<string, THREE.Object3D>
   currentVrm: VRM | null
   currentObject: THREE.Object3D | null
+  expressionState: {
+    aa: number
+    happy: number
+    blink: number
+    blinkLeft: number
+    blinkRight: number
+  }
   lastRenderedAt: number
 }
 
@@ -2466,6 +2473,13 @@ function ensureAvatarRig() {
     fallbackBones: fallbackData.bones,
     currentVrm: null,
     currentObject: fallbackData.group,
+    expressionState: {
+      aa: 0,
+      happy: 0,
+      blink: 0,
+      blinkLeft: 0,
+      blinkRight: 0,
+    },
     lastRenderedAt: performance.now(),
   }
 
@@ -2634,14 +2648,19 @@ function applyAvatarFace(rig: AvatarRig, faceResult: FaceLandmarkerResult | null
   const jawOpen = getBlendshapeScore(faceResult, 'jawOpen')
   const rawSmile = (getBlendshapeScore(faceResult, 'mouthSmileLeft') + getBlendshapeScore(faceResult, 'mouthSmileRight')) / 2
   const smile = clamp((rawSmile - 0.08) * (avatarSmileSensitivity / 100), 0, 1)
-  const blinkLeft = clamp(getBlendshapeScore(faceResult, 'eyeBlinkLeft') * 1.9, 0, 1)
-  const blinkRight = clamp(getBlendshapeScore(faceResult, 'eyeBlinkRight') * 1.9, 0, 1)
-  const blink = clamp(Math.max(blinkLeft, blinkRight) * 1.15, 0, 1)
-  rig.currentVrm?.expressionManager?.setValue('aa', clamp(jawOpen * 1.25, 0, 1))
-  rig.currentVrm?.expressionManager?.setValue('happy', clamp(smile * 1.2, 0, 1))
-  rig.currentVrm?.expressionManager?.setValue('blink', blink)
-  rig.currentVrm?.expressionManager?.setValue('blinkLeft', blinkLeft)
-  rig.currentVrm?.expressionManager?.setValue('blinkRight', blinkRight)
+  const blinkLeft = normalizeAvatarBlink(getBlendshapeScore(faceResult, 'eyeBlinkLeft'))
+  const blinkRight = normalizeAvatarBlink(getBlendshapeScore(faceResult, 'eyeBlinkRight'))
+  const blink = clamp(Math.max(blinkLeft, blinkRight) * 1.08, 0, 1)
+  const aa = smoothAvatarExpression(rig, 'aa', clamp(jawOpen * 1.25, 0, 1), response)
+  const happy = smoothAvatarExpression(rig, 'happy', clamp(smile * 1.2, 0, 1), response * 0.75)
+  const smoothBlink = smoothAvatarBlink(rig, 'blink', blink)
+  const smoothBlinkLeft = smoothAvatarBlink(rig, 'blinkLeft', blinkLeft)
+  const smoothBlinkRight = smoothAvatarBlink(rig, 'blinkRight', blinkRight)
+  rig.currentVrm?.expressionManager?.setValue('aa', aa)
+  rig.currentVrm?.expressionManager?.setValue('happy', happy)
+  rig.currentVrm?.expressionManager?.setValue('blink', smoothBlink)
+  rig.currentVrm?.expressionManager?.setValue('blinkLeft', smoothBlinkLeft)
+  rig.currentVrm?.expressionManager?.setValue('blinkRight', smoothBlinkRight)
 
   const fallbackMouth = rig.fallbackBones.mouth
   if (fallbackMouth) {
@@ -2687,8 +2706,8 @@ function applyAvatarHands(rig: AvatarRig, hands: NormalizedLandmark[][], pose?: 
   }
 
   const response = getAvatarResponse()
-  const leftApplied = applyAvatarArmFromPose(rig, 'left', pose?.[11], pose?.[13], pose?.[15], response)
-  const rightApplied = applyAvatarArmFromPose(rig, 'right', pose?.[12], pose?.[14], pose?.[16], response)
+  let leftApplied = applyAvatarArmFromPose(rig, 'left', pose?.[11], pose?.[13], pose?.[15], response)
+  let rightApplied = applyAvatarArmFromPose(rig, 'right', pose?.[12], pose?.[14], pose?.[16], response)
 
   if ((!leftApplied || !rightApplied) && hands.length > 0) {
     for (const hand of hands.slice(0, 2)) {
@@ -2697,6 +2716,11 @@ function applyAvatarHands(rig: AvatarRig, hands: NormalizedLandmark[][], pose?: 
 
       if ((isLeft && !leftApplied) || (!isLeft && !rightApplied)) {
         applyAvatarArmFromHand(rig, isLeft ? 'left' : 'right', center, response * 0.45)
+        if (isLeft) {
+          leftApplied = true
+        } else {
+          rightApplied = true
+        }
       }
     }
   }
@@ -2727,8 +2751,9 @@ function applyAvatarArmFromPose(
   const safeWrist = wrist!
   const sideSign = side === 'left' ? -1 : 1
   const mirrorSign = mirrorMode ? -1 : 1
+  const heightOffset = getAvatarHandHeightOffset()
   const upperDx = (safeElbow.x - safeShoulder.x) * mirrorSign
-  const upperDy = safeElbow.y - safeShoulder.y
+  const upperDy = safeElbow.y - safeShoulder.y + heightOffset
   const lowerDx = (safeWrist.x - safeElbow.x) * mirrorSign
   const lowerDy = safeWrist.y - safeElbow.y
   const wristDepth = safeWrist.z ?? 0
@@ -2764,7 +2789,7 @@ function applyAvatarArmFromHand(
   const sideSign = side === 'left' ? -1 : 1
   const mirrorSign = mirrorMode ? -1 : 1
   const x = (center.x - 0.5) * mirrorSign
-  const y = center.y - 0.5
+  const y = center.y - 0.5 + getAvatarHandHeightOffset()
   const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
   const lowerName = side === 'left' ? VRMHumanBoneName.LeftLowerArm : VRMHumanBoneName.RightLowerArm
 
@@ -2940,6 +2965,41 @@ function getAvatarResponse() {
   }
 
   return 0.25 - ((avatarSmoothing - 90) / 90) * 0.17
+}
+
+function getAvatarHandHeightOffset() {
+  return clamp(avatarHeight / 1800, -0.34, 0.34)
+}
+
+function normalizeAvatarBlink(score: number) {
+  const normalized = clamp((score - 0.1) / 0.5, 0, 1)
+  const eased = normalized * normalized * (3 - normalized * 2)
+
+  return eased < 0.04 ? 0 : eased
+}
+
+function smoothAvatarExpression(
+  rig: AvatarRig,
+  key: keyof AvatarRig['expressionState'],
+  next: number,
+  response: number,
+) {
+  const current = rig.expressionState[key]
+  const filtered = lerp(current, next, clamp(response, 0.05, 0.8))
+  rig.expressionState[key] = filtered
+  return filtered
+}
+
+function smoothAvatarBlink(rig: AvatarRig, key: 'blink' | 'blinkLeft' | 'blinkRight', next: number) {
+  const current = rig.expressionState[key]
+  const movement = Math.abs(next - current)
+  const baseResponse = getAvatarResponse()
+  const response = clamp(baseResponse * 0.38 + movement * 0.52 + (next > current ? 0.1 : 0), 0.06, 0.82)
+  const filtered = movement < 0.025 ? current : lerp(current, next, response)
+  const settled = filtered < 0.035 ? 0 : filtered
+
+  rig.expressionState[key] = settled
+  return settled
 }
 
 function getBlendshapeScore(result: FaceLandmarkerResult | null, name: string) {
