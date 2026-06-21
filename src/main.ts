@@ -2821,18 +2821,21 @@ function applyAvatarArmFromHand(
   const displayX = toAvatarDisplayX(center.x)
   const x = displayX - 0.5
   const y = center.y - 0.5 + getAvatarHandHeightOffset()
+  const raise = clamp((0.56 - center.y) * 2.4, 0, 1.15)
+  const lateral = clamp(Math.abs(x) * 2.2, 0, 1.1)
+  const shoulderOut = clamp(0.6 - raise * 1.08 + lateral * 0.12, -0.55, 0.72)
   const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
   const lowerName = side === 'left' ? VRMHumanBoneName.LeftLowerArm : VRMHumanBoneName.RightLowerArm
 
   rotateAvatarBone(rig, upperName, `${side}UpperArm`, {
-    x: clamp(-y * 0.9 + 0.2, -0.55, 0.65),
-    y: 0,
-    z: clamp(sideSign * (0.56 + x * 1.1), -0.95, 0.95),
+    x: clamp(0.3 - raise * 0.2 - y * 0.12, -0.28, 0.62),
+    y: clamp(sideSign * x * 0.24, -0.42, 0.42),
+    z: sideSign * shoulderOut,
   }, response)
   rotateAvatarBone(rig, lowerName, `${side}LowerArm`, {
-    x: clamp(-y * 0.65 + 0.12, -0.55, 0.55),
+    x: clamp(0.2 + raise * 0.58 - y * 0.08, -0.12, 0.95),
     y: 0,
-    z: clamp(sideSign * x * 0.85, -0.55, 0.55),
+    z: clamp(sideSign * x * 0.38, -0.42, 0.42),
   }, response)
 }
 
@@ -2930,23 +2933,25 @@ function applyAvatarArmFromHandLandmarks(
   const fingerAngle = Math.atan2(fingerVectorY, fingerVectorX)
   const verticalReach = clamp(relativeY, -0.18, 1.35)
   const sideReach = clamp(Math.abs(relativeX), 0, 1.28)
+  const raise = clamp((verticalReach + 0.08) / 1.18, 0, 1.18)
+  const shoulderOut = clamp(0.62 - raise * 1.16 + sideReach * 0.14, -0.62, 0.74)
   const forwardDepth = clamp(-palmCenter.z * 1.25, -0.38, 0.52)
   const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
   const lowerName = side === 'left' ? VRMHumanBoneName.LeftLowerArm : VRMHumanBoneName.RightLowerArm
   const handName = side === 'left' ? VRMHumanBoneName.LeftHand : VRMHumanBoneName.RightHand
 
   rotateAvatarBone(rig, upperName, `${side}UpperArm`, {
-    x: clamp(0.14 - verticalReach * 0.92, -1.24, 0.62),
-    y: clamp(sideSign * (forwardDepth * 0.85 + relativeX * 0.2), -0.72, 0.72),
-    z: clamp(sideSign * (0.32 + sideReach * 1.0 + Math.abs(relativeX) * 0.22), -1.48, 1.48),
+    x: clamp(0.3 - raise * 0.22 + forwardDepth * 0.28, -0.34, 0.66),
+    y: clamp(sideSign * (forwardDepth * 0.72 + relativeX * 0.18), -0.64, 0.64),
+    z: sideSign * shoulderOut,
   }, response)
   rotateAvatarBone(rig, lowerName, `${side}LowerArm`, {
-    x: clamp(-0.2 - verticalReach * 1.08, -1.34, 0.38),
-    y: clamp(sideSign * forwardDepth * 0.55, -0.48, 0.48),
-    z: clamp(sideSign * (screenSideSign * sideSign * sideReach * 0.54 + relativeX * 0.52), -1.08, 1.08),
+    x: clamp(0.16 + raise * 0.72, -0.12, 1.05),
+    y: clamp(sideSign * forwardDepth * 0.48, -0.42, 0.42),
+    z: clamp(sideSign * (screenSideSign * sideSign * sideReach * 0.18 + relativeX * 0.28), -0.5, 0.5),
   }, response)
   rotateAvatarBone(rig, handName, `${side}Hand`, {
-    x: clamp(-0.12 - palmVectorY * 2.2 - verticalReach * 0.26, -0.9, 0.62),
+    x: clamp(0.02 - palmVectorY * 1.65 + raise * 0.18, -0.62, 0.78),
     y: clamp(sideSign * forwardDepth * 0.95, -0.62, 0.62),
     z: clamp(sideSign * normalizeAngle(fingerAngle - palmAngle) * 0.58, -0.68, 0.68),
   }, response)
