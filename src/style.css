@@ -101,6 +101,10 @@ svg {
   padding: 18px 16px 28px;
 }
 
+.app-shell.is-settings-hidden {
+  max-width: none;
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -214,6 +218,10 @@ svg {
   grid-template-columns: minmax(0, 1fr) clamp(360px, 31vw, 466px);
   gap: 16px;
   align-items: start;
+}
+
+.app-shell.is-settings-hidden .workspace {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .stage-area {
@@ -426,6 +434,10 @@ svg {
   contain: inline-size;
 }
 
+.app-shell.is-settings-hidden .control-area {
+  display: none;
+}
+
 .panel {
   min-width: 0;
   border: 1px solid var(--border);
@@ -493,7 +505,17 @@ svg {
   margin-bottom: 0;
 }
 
+.gesture-strip.is-collapsed .strip-head,
+.event-log-band.is-collapsed .strip-head {
+  margin-bottom: 0;
+}
+
 .panel.is-collapsed > :not(.panel-head) {
+  display: none !important;
+}
+
+.gesture-strip.is-collapsed > :not(.strip-head),
+.event-log-band.is-collapsed > :not(.strip-head) {
   display: none !important;
 }
 

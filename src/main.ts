@@ -43,6 +43,7 @@ import {
   Redo2,
   ScanEye,
   ScanLine,
+  Settings2,
   Smile,
   Target,
   ThumbsDown,
@@ -250,6 +251,7 @@ const usedIcons = {
   Redo2,
   ScanEye,
   ScanLine,
+  Settings2,
   Smile,
   Target,
   ThumbsDown,
@@ -533,7 +535,7 @@ if (!app) {
 document.body.classList.toggle('streamlabs-output', isStreamlabsOutput)
 
 app.innerHTML = `
-  <div class="app-shell">
+  <div class="app-shell" id="appShell">
     <header class="topbar">
       <div class="brand">
         <span class="brand-mark"><i data-lucide="scan-line"></i></span>
@@ -550,6 +552,10 @@ app.innerHTML = `
         <button class="button" id="mirrorButton" type="button" title="Зеркальное отображение">
           <i data-lucide="flip-horizontal-2"></i>
           <span>Зеркало</span>
+        </button>
+        <button class="button" id="settingsButton" type="button" title="Показать или скрыть настройки">
+          <i data-lucide="settings-2"></i>
+          <span>Настройки</span>
         </button>
       </div>
     </header>
@@ -769,6 +775,25 @@ app.innerHTML = `
               </div>
             </div>
           </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Лицо</h2>
+            <label class="switch">
+              <input id="faceTrackingToggle" type="checkbox" checked />
+              <span></span>
+            </label>
+          </div>
+          <p class="panel-state" id="faceTrackingState">Трекинг и маркеры включены</p>
+          <div class="option-row">
+            <span>Несколько лиц</span>
+            <label class="switch">
+              <input id="multiFaceToggle" type="checkbox" />
+              <span></span>
+            </label>
+          </div>
+          <p class="panel-state mode-state" id="multiFaceState">1 лицо</p>
         </section>
 
         <section class="panel">
@@ -1014,25 +1039,6 @@ app.innerHTML = `
 
         <section class="panel">
           <div class="panel-head">
-            <h2>Лицо</h2>
-            <label class="switch">
-              <input id="faceTrackingToggle" type="checkbox" checked />
-              <span></span>
-            </label>
-          </div>
-          <p class="panel-state" id="faceTrackingState">Трекинг и маркеры включены</p>
-          <div class="option-row">
-            <span>Несколько лиц</span>
-            <label class="switch">
-              <input id="multiFaceToggle" type="checkbox" />
-              <span></span>
-            </label>
-          </div>
-          <p class="panel-state mode-state" id="multiFaceState">1 лицо</p>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
             <h2>Производительность</h2>
             <span id="performanceTitle">Авто</span>
           </div>
@@ -1115,6 +1121,7 @@ app.innerHTML = `
   </div>
 `
 
+const appShell = getElement<HTMLDivElement>('appShell')
 const stage = getElement<HTMLDivElement>('stage')
 const video = getElement<HTMLVideoElement>('cameraVideo')
 const avatarCanvas = getElement<HTMLCanvasElement>('avatarCanvas')
@@ -1126,6 +1133,7 @@ const stageEmpty = getElement<HTMLDivElement>('stageEmpty')
 const stageEmptyText = getElement<HTMLSpanElement>('stageEmptyText')
 const cameraButton = getElement<HTMLButtonElement>('cameraButton')
 const mirrorButton = getElement<HTMLButtonElement>('mirrorButton')
+const settingsButton = getElement<HTMLButtonElement>('settingsButton')
 const modelDot = getElement<HTMLSpanElement>('modelDot')
 const modelStatus = getElement<HTMLElement>('modelStatus')
 const cameraDot = getElement<HTMLSpanElement>('cameraDot')
@@ -1272,6 +1280,7 @@ let isRunning = false
 let lastVideoTime = -1
 let currentPreset: PresetId = readPreset()
 let mirrorMode = localStorage.getItem('xedoc-hands-mirror') !== 'off'
+let settingsVisible = localStorage.getItem('xedoc-hands-settings-visible') !== 'off'
 let enabledGestures = readEnabledGestures()
 let handTrackingEnabled = localStorage.getItem('xedoc-hands-hand-tracking') !== 'off'
 let handMarkersEnabled = localStorage.getItem('xedoc-hands-hand-markers') !== 'off'
@@ -1356,6 +1365,7 @@ renderPerformanceModeTabs()
 refreshIcons()
 setupCollapsiblePanels()
 setMirrorMode(mirrorMode)
+setSettingsVisible(settingsVisible)
 setHandTrackingEnabled(handTrackingEnabled)
 setHandMarkersEnabled(handMarkersEnabled)
 setFaceTrackingEnabled(faceTrackingEnabled)
@@ -1419,7 +1429,19 @@ mirrorButton.addEventListener('click', () => {
   trackToggle('mirror_toggled', mirrorMode)
 })
 
+settingsButton.addEventListener('click', () => {
+  setSettingsVisible(!settingsVisible)
+  trackToggle('settings_toggled', settingsVisible)
+})
+
 maskToggle.addEventListener('change', () => {
+  if (maskToggle.checked && !faceTrackingEnabled) {
+    setFaceTrackingEnabled(true)
+    trackToggle('face_tracking_toggled', true, {
+      source: 'mask_enabled',
+    })
+  }
+
   setMaskEnabled(maskToggle.checked)
   trackToggle('mask_toggled', maskToggle.checked, {
     maskMode,
@@ -5500,6 +5522,14 @@ function setMirrorMode(next: boolean) {
   mirrorButton.classList.toggle('is-active', next)
 }
 
+function setSettingsVisible(next: boolean) {
+  settingsVisible = next
+  localStorage.setItem('xedoc-hands-settings-visible', next ? 'on' : 'off')
+  appShell.classList.toggle('is-settings-hidden', !next)
+  settingsButton.classList.toggle('is-active', next)
+  settingsButton.setAttribute('aria-pressed', String(next))
+}
+
 function syncCanvasSize() {
   if (!video.videoWidth || !video.videoHeight) {
     return
@@ -5692,47 +5722,51 @@ function refreshIcons() {
 function setupCollapsiblePanels() {
   const collapsedPanels = readCollapsedPanels()
 
-  document.querySelectorAll<HTMLHeadingElement>('.control-area .panel > .panel-head > h2').forEach((title) => {
-    const panel = title.closest<HTMLElement>('.panel')
-    const key = title.textContent?.trim()
+  document
+    .querySelectorAll<HTMLHeadingElement>(
+      '.control-area .panel > .panel-head > h2, .gesture-strip > .strip-head > h2, .event-log-band > .strip-head > h2',
+    )
+    .forEach((title) => {
+      const panel = title.closest<HTMLElement>('.panel, .gesture-strip, .event-log-band')
+      const key = title.textContent?.trim()
 
-    if (!panel || !key) {
-      return
-    }
-
-    title.classList.add('panel-toggle-title')
-    title.tabIndex = 0
-    title.setAttribute('role', 'button')
-    title.setAttribute('aria-expanded', collapsedPanels.has(key) ? 'false' : 'true')
-    setPanelCollapsed(panel, title, collapsedPanels.has(key))
-
-    const toggle = () => {
-      const next = !panel.classList.contains('is-collapsed')
-      setPanelCollapsed(panel, title, next)
-
-      if (next) {
-        collapsedPanels.add(key)
-      } else {
-        collapsedPanels.delete(key)
-      }
-
-      saveCollapsedPanels(collapsedPanels)
-      trackMetrika('panel_collapsed_toggled', {
-        panel: key,
-        collapsed: next,
-      })
-    }
-
-    title.addEventListener('click', toggle)
-    title.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' && event.key !== ' ') {
+      if (!panel || !key) {
         return
       }
 
-      event.preventDefault()
-      toggle()
+      title.classList.add('panel-toggle-title')
+      title.tabIndex = 0
+      title.setAttribute('role', 'button')
+      title.setAttribute('aria-expanded', collapsedPanels.has(key) ? 'false' : 'true')
+      setPanelCollapsed(panel, title, collapsedPanels.has(key))
+
+      const toggle = () => {
+        const next = !panel.classList.contains('is-collapsed')
+        setPanelCollapsed(panel, title, next)
+
+        if (next) {
+          collapsedPanels.add(key)
+        } else {
+          collapsedPanels.delete(key)
+        }
+
+        saveCollapsedPanels(collapsedPanels)
+        trackMetrika('panel_collapsed_toggled', {
+          panel: key,
+          collapsed: next,
+        })
+      }
+
+      title.addEventListener('click', toggle)
+      title.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') {
+          return
+        }
+
+        event.preventDefault()
+        toggle()
+      })
     })
-  })
 }
 
 function setPanelCollapsed(panel: HTMLElement, title: HTMLElement, collapsed: boolean) {
