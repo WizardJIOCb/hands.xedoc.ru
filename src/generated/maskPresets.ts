@@ -6,6 +6,11 @@ export type MaskPreset = {
 
 export const maskPresets = [
   {
+    "id": "einstein-2",
+    "label": "Einstein-2",
+    "url": "/masks/Einstein-2.webp"
+  },
+  {
     "id": "einstein",
     "label": "Einstein",
     "url": "/masks/Einstein.jpg"
