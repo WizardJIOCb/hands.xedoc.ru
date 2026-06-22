@@ -791,6 +791,17 @@ app.innerHTML = `
                 <span>Больше</span>
               </div>
             </div>
+            <div class="mask-stability">
+              <div class="mask-stability-head">
+                <label class="input-label" for="avatarMouthPitchCompensation">Компенсация рта</label>
+                <strong id="avatarMouthPitchCompensationValue">55%</strong>
+              </div>
+              <input id="avatarMouthPitchCompensation" class="range-input" type="range" min="0" max="100" step="1" value="55" />
+              <div class="range-captions">
+                <span>Нет</span>
+                <span>Сильнее</span>
+              </div>
+            </div>
             <div class="option-row">
               <span>Инверт. вверх/вниз</span>
               <label class="switch">
@@ -1216,6 +1227,8 @@ const avatarHeadPitchOffsetSlider = getElement<HTMLInputElement>('avatarHeadPitc
 const avatarHeadPitchOffsetValue = getElement<HTMLElement>('avatarHeadPitchOffsetValue')
 const avatarHeadPitchScaleSlider = getElement<HTMLInputElement>('avatarHeadPitchScale')
 const avatarHeadPitchScaleValue = getElement<HTMLElement>('avatarHeadPitchScaleValue')
+const avatarMouthPitchCompensationSlider = getElement<HTMLInputElement>('avatarMouthPitchCompensation')
+const avatarMouthPitchCompensationValue = getElement<HTMLElement>('avatarMouthPitchCompensationValue')
 const avatarHeadPitchInvertToggle = getElement<HTMLInputElement>('avatarHeadPitchInvertToggle')
 const avatarHeadYawInvertToggle = getElement<HTMLInputElement>('avatarHeadYawInvertToggle')
 const avatarHeadRollInvertToggle = getElement<HTMLInputElement>('avatarHeadRollInvertToggle')
@@ -1342,6 +1355,7 @@ let avatarHeight = readAvatarHeight()
 let avatarHeadRollOffset = readAvatarHeadRollOffset()
 let avatarHeadPitchOffset = readAvatarHeadPitchOffset()
 let avatarHeadPitchScale = readAvatarHeadPitchScale()
+let avatarMouthPitchCompensation = readAvatarMouthPitchCompensation()
 let avatarHeadPitchInverted = readAvatarHeadInverted('pitch')
 let avatarHeadYawInverted = readAvatarHeadInverted('yaw')
 let avatarHeadRollInverted = readAvatarHeadInverted('roll')
@@ -1428,6 +1442,7 @@ setAvatarHeight(avatarHeight)
 setAvatarHeadRollOffset(avatarHeadRollOffset)
 setAvatarHeadPitchOffset(avatarHeadPitchOffset)
 setAvatarHeadPitchScale(avatarHeadPitchScale)
+setAvatarMouthPitchCompensation(avatarMouthPitchCompensation)
 setAvatarHeadPitchInverted(avatarHeadPitchInverted)
 setAvatarHeadYawInverted(avatarHeadYawInverted)
 setAvatarHeadRollInverted(avatarHeadRollInverted)
@@ -1613,6 +1628,14 @@ avatarHeadPitchScaleSlider.addEventListener('input', () => {
 
 avatarHeadPitchScaleSlider.addEventListener('change', () => {
   trackMetrika('avatar_setting_changed', { setting: 'headPitchScale', value: avatarHeadPitchScale })
+})
+
+avatarMouthPitchCompensationSlider.addEventListener('input', () => {
+  setAvatarMouthPitchCompensation(Number(avatarMouthPitchCompensationSlider.value))
+})
+
+avatarMouthPitchCompensationSlider.addEventListener('change', () => {
+  trackMetrika('avatar_setting_changed', { setting: 'mouthPitchCompensation', value: avatarMouthPitchCompensation })
 })
 
 avatarHeadPitchInvertToggle.addEventListener('change', () => {
@@ -2901,7 +2924,10 @@ function applyAvatarFace(rig: AvatarRig, faceResult: FaceLandmarkerResult | null
   const rollSign = avatarHeadRollInverted ? -1 : 1
   const yaw = (pose ? pose.yaw : Math.sin(idle * 0.7) * 0.03) * yawSign
   const pitchOffset = (avatarHeadPitchOffset * Math.PI) / 180
-  const pitch = (pose ? pose.pitch : Math.sin(idle * 0.9) * 0.025) * pitchSign * (avatarHeadPitchScale / 100) + pitchOffset
+  const jawOpen = getBlendshapeScore(faceResult, 'jawOpen')
+  const rawPitch = (pose ? pose.pitch : Math.sin(idle * 0.9) * 0.025) * pitchSign
+  const mouthPitchDamping = 1 - jawOpen * (avatarMouthPitchCompensation / 100) * 0.85
+  const pitch = rawPitch * mouthPitchDamping * (avatarHeadPitchScale / 100) + pitchOffset
   const rollOffset = (-avatarHeadRollOffset * Math.PI) / 180
   const roll = (face ? -getFaceRoll(face) : Math.sin(idle * 0.6) * 0.02) * rollSign + rollOffset
   const response = getAvatarResponse()
@@ -2917,7 +2943,6 @@ function applyAvatarFace(rig: AvatarRig, faceResult: FaceLandmarkerResult | null
     z: clamp(roll * 0.18, -0.16, 0.16),
   }, response)
 
-  const jawOpen = getBlendshapeScore(faceResult, 'jawOpen')
   const rawSmile = (getBlendshapeScore(faceResult, 'mouthSmileLeft') + getBlendshapeScore(faceResult, 'mouthSmileRight')) / 2
   const smile = clamp((rawSmile - 0.08) * (avatarSmileSensitivity / 100), 0, 1)
   const blinkLeft = normalizeAvatarBlink(getBlendshapeScore(faceResult, 'eyeBlinkLeft'))
@@ -5314,6 +5339,13 @@ function setAvatarHeadPitchScale(next: number) {
   avatarHeadPitchScaleValue.textContent = `${avatarHeadPitchScale}%`
 }
 
+function setAvatarMouthPitchCompensation(next: number) {
+  avatarMouthPitchCompensation = clamp(Math.round(next), 0, 100)
+  localStorage.setItem('xedoc-hands-avatar-mouth-pitch-compensation', String(avatarMouthPitchCompensation))
+  avatarMouthPitchCompensationSlider.value = String(avatarMouthPitchCompensation)
+  avatarMouthPitchCompensationValue.textContent = `${avatarMouthPitchCompensation}%`
+}
+
 function setAvatarHeadPitchInverted(next: boolean) {
   avatarHeadPitchInverted = next
   localStorage.setItem('xedoc-hands-avatar-head-pitch-inverted', next ? 'on' : 'off')
@@ -5741,6 +5773,12 @@ function readAvatarHeadPitchScale() {
   const raw = localStorage.getItem('xedoc-hands-avatar-head-pitch-scale')
   const saved = raw === null ? Number.NaN : Number(raw)
   return Number.isFinite(saved) ? clamp(Math.round(saved), 50, 250) : 100
+}
+
+function readAvatarMouthPitchCompensation() {
+  const raw = localStorage.getItem('xedoc-hands-avatar-mouth-pitch-compensation')
+  const saved = raw === null ? Number.NaN : Number(raw)
+  return Number.isFinite(saved) ? clamp(Math.round(saved), 0, 100) : 55
 }
 
 function readAvatarHeadInverted(axis: 'pitch' | 'yaw' | 'roll') {
