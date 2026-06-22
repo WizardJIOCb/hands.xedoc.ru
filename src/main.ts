@@ -215,12 +215,16 @@ const avatarModelPresets = [
     label: 'Текущая',
     name: 'Тестовая VRM',
     url: defaultAvatarModelUrl,
+    rotationY: 0,
+    restArmProfile: '',
   },
   {
     id: 'alicia',
     label: 'Alicia',
     name: 'AliciaSolid VRM',
     url: 'https://raw.githubusercontent.com/vrm-c/UniVRM/master/Tests/Models/Alicia_vrm-0.51/AliciaSolid_vrm-0.51.vrm',
+    rotationY: Math.PI,
+    restArmProfile: 'vrm0',
   },
 ] as const
 
@@ -2790,6 +2794,7 @@ async function ensureAvatarModel() {
 
 async function loadAvatarModel(url: string, label: string) {
   const rig = ensureAvatarRig()
+  const preset = getAvatarModelPresetByUrl(url)
   avatarLoading = true
   avatarState.textContent = `Загрузка: ${label}`
 
@@ -2805,8 +2810,10 @@ async function loadAvatarModel(url: string, label: string) {
     rig.fallback.visible = false
     rig.currentVrm = vrm ?? null
     rig.currentObject = object
+    object.userData.avatarBaseRotationY = preset?.rotationY ?? 0
+    object.userData.avatarRestArmProfile = preset?.restArmProfile ?? ''
     object.position.set(0, 0, 0)
-    object.rotation.set(0, 0, 0)
+    object.rotation.set(0, object.userData.avatarBaseRotationY, 0)
     rig.scene.add(object)
     prepareAvatarObjectFrame(object, object === rig.fallback)
     avatarModelUrl = url
@@ -3451,6 +3458,8 @@ function applyAvatarRestArms(rig: AvatarRig, response: number) {
 
 function applyAvatarRestArm(rig: AvatarRig, side: AvatarSide, response: number) {
   const sideSign = side === 'left' ? -1 : 1
+  const restProfile = rig.currentObject?.userData.avatarRestArmProfile
+  const armZSign = restProfile === 'vrm0' ? -sideSign : sideSign
   const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
   const lowerName = side === 'left' ? VRMHumanBoneName.LeftLowerArm : VRMHumanBoneName.RightLowerArm
   const handName = side === 'left' ? VRMHumanBoneName.LeftHand : VRMHumanBoneName.RightHand
@@ -3458,17 +3467,17 @@ function applyAvatarRestArm(rig: AvatarRig, side: AvatarSide, response: number) 
   rotateAvatarBone(rig, upperName, `${side}UpperArm`, {
     x: 0.22,
     y: sideSign * 0.06,
-    z: sideSign * 1.08,
+    z: armZSign * 1.08,
   }, response)
   rotateAvatarBone(rig, lowerName, `${side}LowerArm`, {
     x: 0.42,
     y: -sideSign * 0.08,
-    z: sideSign * 0.08,
+    z: armZSign * 0.08,
   }, response)
   rotateAvatarBone(rig, handName, `${side}Hand`, {
     x: 0.04,
     y: 0,
-    z: sideSign * 0.03,
+    z: armZSign * 0.03,
   }, response)
 }
 
@@ -3544,8 +3553,10 @@ function applyAvatarTransform() {
 
   const baseScale = typeof object.userData.avatarBaseScale === 'number' ? object.userData.avatarBaseScale : 1
   const baseY = typeof object.userData.avatarBaseY === 'number' ? object.userData.avatarBaseY : 0
+  const baseRotationY = typeof object.userData.avatarBaseRotationY === 'number' ? object.userData.avatarBaseRotationY : 0
   const scale = (avatarScale / 100) * baseScale
   object.scale.setScalar(scale)
+  object.rotation.y = baseRotationY
   object.position.y = baseY + avatarHeight / 100
   renderAvatarScene(performance.now())
 }
@@ -5245,8 +5256,12 @@ function setAvatarHeadPitchScale(next: number) {
 }
 
 function updateAvatarModelButtons(url: string | null) {
-  avatarModelSelect.value = avatarModelPresets.find((preset) => preset.url === url)?.id ?? ''
+  avatarModelSelect.value = getAvatarModelPresetByUrl(url)?.id ?? ''
   avatarSampleButton.classList.toggle('is-active', url === defaultAvatarModelUrl)
+}
+
+function getAvatarModelPresetByUrl(url: string | null) {
+  return avatarModelPresets.find((preset) => preset.url === url)
 }
 
 function setAvatarBackgroundImage(next: string | null) {
