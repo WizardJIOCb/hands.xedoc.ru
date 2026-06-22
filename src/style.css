@@ -711,16 +711,8 @@ svg {
 
 .avatar-model-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
   margin-top: 8px;
-}
-
-.avatar-model-button {
-  overflow: hidden;
-  padding: 0 8px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .file-button {

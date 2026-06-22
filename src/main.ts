@@ -666,13 +666,13 @@ app.innerHTML = `
             <button class="mask-mode-button mask-sample-button" id="avatarSampleButton" type="button">Тестовая</button>
           </div>
           <div class="avatar-model-list" aria-label="Модели аватара">
-            ${avatarModelPresets.map((model) => `
-              <button
-                class="mask-mode-button avatar-model-button"
-                type="button"
-                data-avatar-model="${model.id}"
-              >${model.label}</button>
-            `).join('')}
+            <label class="input-label" for="avatarModelSelect">Модель</label>
+            <select class="select-input" id="avatarModelSelect">
+              <option value="">Выбрать модель</option>
+              ${avatarModelPresets.map((model) => `
+                <option value="${model.id}">${model.label}</option>
+              `).join('')}
+            </select>
           </div>
           <div class="mask-control avatar-control avatar-bg-control">
             <label class="file-button" for="avatarBackgroundFile">
@@ -1163,7 +1163,7 @@ const performanceModeState = getElement<HTMLElement>('performanceModeState')
 const avatarToggle = getElement<HTMLInputElement>('avatarToggle')
 const avatarFile = getElement<HTMLInputElement>('avatarFile')
 const avatarSampleButton = getElement<HTMLButtonElement>('avatarSampleButton')
-const avatarModelButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-avatar-model]'))
+const avatarModelSelect = getElement<HTMLSelectElement>('avatarModelSelect')
 const avatarBackgroundFile = getElement<HTMLInputElement>('avatarBackgroundFile')
 const avatarBackgroundClearButton = getElement<HTMLButtonElement>('avatarBackgroundClearButton')
 const avatarState = getElement<HTMLElement>('avatarState')
@@ -1579,17 +1579,15 @@ avatarSampleButton.addEventListener('click', () => {
   void loadAvatarModel(defaultAvatarModelUrl, 'Тестовая VRM')
 })
 
-for (const button of avatarModelButtons) {
-  button.addEventListener('click', () => {
-    const preset = avatarModelPresets.find((model) => model.id === button.dataset.avatarModel)
+avatarModelSelect.addEventListener('change', () => {
+  const preset = avatarModelPresets.find((model) => model.id === avatarModelSelect.value)
 
-    if (!preset) {
-      return
-    }
+  if (!preset) {
+    return
+  }
 
-    void loadAvatarModel(preset.url, preset.name)
-  })
-}
+  void loadAvatarModel(preset.url, preset.name)
+})
 
 avatarFile.addEventListener('change', () => {
   const file = avatarFile.files?.[0]
@@ -5247,11 +5245,7 @@ function setAvatarHeadPitchScale(next: number) {
 }
 
 function updateAvatarModelButtons(url: string | null) {
-  for (const button of avatarModelButtons) {
-    const preset = avatarModelPresets.find((model) => model.id === button.dataset.avatarModel)
-    button.classList.toggle('is-active', Boolean(preset && preset.url === url))
-  }
-
+  avatarModelSelect.value = avatarModelPresets.find((preset) => preset.url === url)?.id ?? ''
   avatarSampleButton.classList.toggle('is-active', url === defaultAvatarModelUrl)
 }
 
