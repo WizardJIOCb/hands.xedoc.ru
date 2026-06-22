@@ -716,6 +716,13 @@ app.innerHTML = `
               </label>
             </div>
             <div class="option-row">
+              <span>Инверт. высоту рук</span>
+              <label class="switch">
+                <input id="avatarHandsYInvertToggle" type="checkbox" />
+                <span></span>
+              </label>
+            </div>
+            <div class="option-row">
               <span>Торс</span>
               <label class="switch">
                 <input id="avatarTorsoToggle" type="checkbox" checked />
@@ -1212,6 +1219,7 @@ const avatarState = getElement<HTMLElement>('avatarState')
 const avatarFaceToggle = getElement<HTMLInputElement>('avatarFaceToggle')
 const avatarFaceOverlayToggle = getElement<HTMLInputElement>('avatarFaceOverlayToggle')
 const avatarHandsToggle = getElement<HTMLInputElement>('avatarHandsToggle')
+const avatarHandsYInvertToggle = getElement<HTMLInputElement>('avatarHandsYInvertToggle')
 const avatarTorsoToggle = getElement<HTMLInputElement>('avatarTorsoToggle')
 const avatarSmoothingSlider = getElement<HTMLInputElement>('avatarSmoothing')
 const avatarSmoothingValue = getElement<HTMLElement>('avatarSmoothingValue')
@@ -1347,6 +1355,7 @@ let avatarEnabled = localStorage.getItem('xedoc-hands-avatar-enabled') === 'true
 let avatarFaceEnabled = localStorage.getItem('xedoc-hands-avatar-face') !== 'off'
 let avatarFaceOverlayEnabled = localStorage.getItem('xedoc-hands-avatar-face-overlay') !== 'off'
 let avatarHandsEnabled = localStorage.getItem('xedoc-hands-avatar-hands') !== 'off'
+let avatarHandsYInverted = localStorage.getItem('xedoc-hands-avatar-hands-y-inverted') === 'on'
 let avatarTorsoEnabled = localStorage.getItem('xedoc-hands-avatar-torso') !== 'off'
 let avatarSmoothing = readAvatarSmoothing()
 let avatarSmileSensitivity = readAvatarSmileSensitivity()
@@ -1434,6 +1443,7 @@ setHudVisible(hudVisible)
 setPerformanceMode(performanceMode)
 setAvatarFaceEnabled(avatarFaceEnabled)
 setAvatarHandsEnabled(avatarHandsEnabled)
+setAvatarHandsYInverted(avatarHandsYInverted)
 setAvatarTorsoEnabled(avatarTorsoEnabled)
 setAvatarSmoothing(avatarSmoothing)
 setAvatarSmileSensitivity(avatarSmileSensitivity)
@@ -1567,6 +1577,11 @@ avatarFaceOverlayToggle.addEventListener('change', () => {
 avatarHandsToggle.addEventListener('change', () => {
   setAvatarHandsEnabled(avatarHandsToggle.checked)
   trackToggle('avatar_hands_toggled', avatarHandsEnabled)
+})
+
+avatarHandsYInvertToggle.addEventListener('change', () => {
+  setAvatarHandsYInverted(avatarHandsYInvertToggle.checked)
+  trackMetrika('avatar_setting_changed', { setting: 'handsYInverted', value: avatarHandsYInverted })
 })
 
 avatarTorsoToggle.addEventListener('change', () => {
@@ -3074,11 +3089,12 @@ function applyAvatarArmFromPose(
   const safeWrist = wrist!
   const sideSign = side === 'left' ? -1 : 1
   const mirrorSign = mirrorMode ? -1 : 1
+  const verticalSign = avatarHandsYInverted ? -1 : 1
   const heightOffset = getAvatarHandHeightOffset()
   const upperDx = (safeElbow.x - safeShoulder.x) * mirrorSign
-  const upperDy = safeElbow.y - safeShoulder.y + heightOffset
+  const upperDy = (safeElbow.y - safeShoulder.y) * verticalSign + heightOffset
   const lowerDx = (safeWrist.x - safeElbow.x) * mirrorSign
-  const lowerDy = safeWrist.y - safeElbow.y
+  const lowerDy = (safeWrist.y - safeElbow.y) * verticalSign
   const wristDepth = safeWrist.z ?? 0
   const upperName = side === 'left' ? VRMHumanBoneName.LeftUpperArm : VRMHumanBoneName.RightUpperArm
   const lowerName = side === 'left' ? VRMHumanBoneName.LeftLowerArm : VRMHumanBoneName.RightLowerArm
@@ -3110,10 +3126,11 @@ function applyAvatarArmFromHand(
   response: number,
 ) {
   const sideSign = side === 'left' ? -1 : 1
+  const verticalSign = avatarHandsYInverted ? -1 : 1
   const displayX = toAvatarDisplayX(center.x)
   const x = displayX - 0.5
-  const y = center.y - 0.5 + getAvatarHandHeightOffset()
-  const raise = clamp((0.56 - center.y) * 2.4, 0, 1.15)
+  const y = (center.y - 0.5) * verticalSign + getAvatarHandHeightOffset()
+  const raise = clamp((0.56 - center.y) * 2.4 * verticalSign, 0, 1.15)
   const lateral = clamp(Math.abs(x) * 2.2, 0, 1.1)
   const closeToTorso = 1 - clamp(lateral / 1.05, 0, 1)
   const elbowBend = clamp(0.18 + raise * 0.38 + closeToTorso * 0.58, 0.12, 1.0)
@@ -3217,13 +3234,14 @@ function applyAvatarArmFromHandLandmarks(
   const displayMiddleBaseX = toAvatarDisplayX(middleBase.x)
   const displayMiddleTipX = toAvatarDisplayX(middleTip.x)
   const poseArm = getAvatarPoseArmForHand(pose, displayPalmX)
+  const verticalSign = avatarHandsYInverted ? -1 : 1
   const relativeX = clamp((displayPalmX - frame.x) / frame.width, -1.9, 1.9)
-  const relativeY = clamp((frame.y - palmCenter.y - getAvatarHandHeightOffset() * 0.42) / frame.width, -1.1, 2.3)
+  const relativeY = clamp(((frame.y - palmCenter.y) * verticalSign - getAvatarHandHeightOffset() * 0.42) / frame.width, -1.1, 2.3)
   const screenSideSign = displayPalmX < frame.x ? -1 : 1
   const palmVectorX = displayMiddleBaseX - displayWristX
-  const palmVectorY = middleBase.y - wrist.y
+  const palmVectorY = (middleBase.y - wrist.y) * verticalSign
   const fingerVectorX = displayMiddleTipX - displayMiddleBaseX
-  const fingerVectorY = middleTip.y - middleBase.y
+  const fingerVectorY = (middleTip.y - middleBase.y) * verticalSign
   const palmAngle = Math.atan2(palmVectorY, palmVectorX)
   const fingerAngle = Math.atan2(fingerVectorY, fingerVectorX)
   const verticalReach = clamp(relativeY, -0.18, 1.35)
@@ -3286,8 +3304,9 @@ function applyAvatarScreenHandCorrection(
   const renderedY = (1 - position.y) / 2
   const targetX = target.x
   const targetY = target.y
+  const verticalSign = avatarHandsYInverted ? -1 : 1
   const dx = clamp(targetX - renderedX, -0.42, 0.42)
-  const dy = clamp(targetY - renderedY, -0.42, 0.42)
+  const dy = clamp((targetY - renderedY) * verticalSign, -0.42, 0.42)
   const sideSign = side === 'left' ? -1 : 1
   const amount = clamp(response * 0.58, 0.04, 0.42)
   const targetUpperZ = clamp(upper.rotation.z + sideSign * dx * 1.35 - dy * 0.72, -1.55, 1.55)
@@ -5280,6 +5299,12 @@ function setAvatarHandsEnabled(next: boolean) {
   avatarHandsEnabled = next
   localStorage.setItem('xedoc-hands-avatar-hands', next ? 'on' : 'off')
   avatarHandsToggle.checked = next
+}
+
+function setAvatarHandsYInverted(next: boolean) {
+  avatarHandsYInverted = next
+  localStorage.setItem('xedoc-hands-avatar-hands-y-inverted', next ? 'on' : 'off')
+  avatarHandsYInvertToggle.checked = next
 }
 
 function setAvatarTorsoEnabled(next: boolean) {
