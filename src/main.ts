@@ -217,6 +217,9 @@ const avatarModelPresets = [
     url: defaultAvatarModelUrl,
     rotationY: 0,
     restArmProfile: '',
+    invertHeadPitch: false,
+    invertHeadYaw: false,
+    invertHeadRoll: false,
   },
   {
     id: 'alicia',
@@ -225,6 +228,9 @@ const avatarModelPresets = [
     url: 'https://raw.githubusercontent.com/vrm-c/UniVRM/master/Tests/Models/Alicia_vrm-0.51/AliciaSolid_vrm-0.51.vrm',
     rotationY: Math.PI,
     restArmProfile: 'vrm0',
+    invertHeadPitch: true,
+    invertHeadYaw: false,
+    invertHeadRoll: false,
   },
 ] as const
 
@@ -785,6 +791,27 @@ app.innerHTML = `
                 <span>Больше</span>
               </div>
             </div>
+            <div class="option-row">
+              <span>Инверт. вверх/вниз</span>
+              <label class="switch">
+                <input id="avatarHeadPitchInvertToggle" type="checkbox" />
+                <span></span>
+              </label>
+            </div>
+            <div class="option-row">
+              <span>Инверт. влево/вправо</span>
+              <label class="switch">
+                <input id="avatarHeadYawInvertToggle" type="checkbox" />
+                <span></span>
+              </label>
+            </div>
+            <div class="option-row">
+              <span>Инверт. наклон</span>
+              <label class="switch">
+                <input id="avatarHeadRollInvertToggle" type="checkbox" />
+                <span></span>
+              </label>
+            </div>
           </div>
         </section>
 
@@ -1189,6 +1216,9 @@ const avatarHeadPitchOffsetSlider = getElement<HTMLInputElement>('avatarHeadPitc
 const avatarHeadPitchOffsetValue = getElement<HTMLElement>('avatarHeadPitchOffsetValue')
 const avatarHeadPitchScaleSlider = getElement<HTMLInputElement>('avatarHeadPitchScale')
 const avatarHeadPitchScaleValue = getElement<HTMLElement>('avatarHeadPitchScaleValue')
+const avatarHeadPitchInvertToggle = getElement<HTMLInputElement>('avatarHeadPitchInvertToggle')
+const avatarHeadYawInvertToggle = getElement<HTMLInputElement>('avatarHeadYawInvertToggle')
+const avatarHeadRollInvertToggle = getElement<HTMLInputElement>('avatarHeadRollInvertToggle')
 const currentGesture = getElement<HTMLElement>('currentGesture')
 const fpsValue = getElement<HTMLElement>('fpsValue')
 const handCount = getElement<HTMLElement>('handCount')
@@ -1312,6 +1342,9 @@ let avatarHeight = readAvatarHeight()
 let avatarHeadRollOffset = readAvatarHeadRollOffset()
 let avatarHeadPitchOffset = readAvatarHeadPitchOffset()
 let avatarHeadPitchScale = readAvatarHeadPitchScale()
+let avatarHeadPitchInverted = readAvatarHeadInverted('pitch')
+let avatarHeadYawInverted = readAvatarHeadInverted('yaw')
+let avatarHeadRollInverted = readAvatarHeadInverted('roll')
 let avatarBackgroundImage = readAvatarBackgroundImage()
 let maskEnabled = localStorage.getItem('xedoc-hands-mask-enabled') === 'true'
 let maskMode: MaskMode = readMaskMode()
@@ -1395,6 +1428,9 @@ setAvatarHeight(avatarHeight)
 setAvatarHeadRollOffset(avatarHeadRollOffset)
 setAvatarHeadPitchOffset(avatarHeadPitchOffset)
 setAvatarHeadPitchScale(avatarHeadPitchScale)
+setAvatarHeadPitchInverted(avatarHeadPitchInverted)
+setAvatarHeadYawInverted(avatarHeadYawInverted)
+setAvatarHeadRollInverted(avatarHeadRollInverted)
 setAvatarBackgroundImage(avatarBackgroundImage)
 setAvatarEnabled(avatarEnabled)
 setMaskMode(maskMode)
@@ -1577,6 +1613,21 @@ avatarHeadPitchScaleSlider.addEventListener('input', () => {
 
 avatarHeadPitchScaleSlider.addEventListener('change', () => {
   trackMetrika('avatar_setting_changed', { setting: 'headPitchScale', value: avatarHeadPitchScale })
+})
+
+avatarHeadPitchInvertToggle.addEventListener('change', () => {
+  setAvatarHeadPitchInverted(avatarHeadPitchInvertToggle.checked)
+  trackMetrika('avatar_setting_changed', { setting: 'headPitchInverted', value: avatarHeadPitchInverted })
+})
+
+avatarHeadYawInvertToggle.addEventListener('change', () => {
+  setAvatarHeadYawInverted(avatarHeadYawInvertToggle.checked)
+  trackMetrika('avatar_setting_changed', { setting: 'headYawInverted', value: avatarHeadYawInverted })
+})
+
+avatarHeadRollInvertToggle.addEventListener('change', () => {
+  setAvatarHeadRollInverted(avatarHeadRollInvertToggle.checked)
+  trackMetrika('avatar_setting_changed', { setting: 'headRollInverted', value: avatarHeadRollInverted })
 })
 
 avatarSampleButton.addEventListener('click', () => {
@@ -2818,6 +2869,11 @@ async function loadAvatarModel(url: string, label: string) {
     prepareAvatarObjectFrame(object, object === rig.fallback)
     avatarModelUrl = url
     updateAvatarModelButtons(url)
+    if (preset) {
+      setAvatarHeadPitchInverted(preset.invertHeadPitch)
+      setAvatarHeadYawInverted(preset.invertHeadYaw)
+      setAvatarHeadRollInverted(preset.invertHeadRoll)
+    }
     applyAvatarTransform()
     avatarState.textContent = vrm ? `VRM: ${label}` : `Модель: ${label}`
     trackMetrika('avatar_model_changed', {
@@ -2840,11 +2896,14 @@ async function loadAvatarModel(url: string, label: string) {
 function applyAvatarFace(rig: AvatarRig, faceResult: FaceLandmarkerResult | null, face?: NormalizedLandmark[]) {
   const idle = performance.now() * 0.001
   const pose = face ? getHeadPose(face) : null
-  const yaw = pose ? pose.yaw : Math.sin(idle * 0.7) * 0.03
+  const yawSign = avatarHeadYawInverted ? -1 : 1
+  const pitchSign = avatarHeadPitchInverted ? -1 : 1
+  const rollSign = avatarHeadRollInverted ? -1 : 1
+  const yaw = (pose ? pose.yaw : Math.sin(idle * 0.7) * 0.03) * yawSign
   const pitchOffset = (avatarHeadPitchOffset * Math.PI) / 180
-  const pitch = (pose ? pose.pitch : Math.sin(idle * 0.9) * 0.025) * (avatarHeadPitchScale / 100) + pitchOffset
+  const pitch = (pose ? pose.pitch : Math.sin(idle * 0.9) * 0.025) * pitchSign * (avatarHeadPitchScale / 100) + pitchOffset
   const rollOffset = (-avatarHeadRollOffset * Math.PI) / 180
-  const roll = (face ? -getFaceRoll(face) : Math.sin(idle * 0.6) * 0.02) + rollOffset
+  const roll = (face ? -getFaceRoll(face) : Math.sin(idle * 0.6) * 0.02) * rollSign + rollOffset
   const response = getAvatarResponse()
 
   rotateAvatarBone(rig, VRMHumanBoneName.Head, 'head', {
@@ -5255,6 +5314,24 @@ function setAvatarHeadPitchScale(next: number) {
   avatarHeadPitchScaleValue.textContent = `${avatarHeadPitchScale}%`
 }
 
+function setAvatarHeadPitchInverted(next: boolean) {
+  avatarHeadPitchInverted = next
+  localStorage.setItem('xedoc-hands-avatar-head-pitch-inverted', next ? 'on' : 'off')
+  avatarHeadPitchInvertToggle.checked = next
+}
+
+function setAvatarHeadYawInverted(next: boolean) {
+  avatarHeadYawInverted = next
+  localStorage.setItem('xedoc-hands-avatar-head-yaw-inverted', next ? 'on' : 'off')
+  avatarHeadYawInvertToggle.checked = next
+}
+
+function setAvatarHeadRollInverted(next: boolean) {
+  avatarHeadRollInverted = next
+  localStorage.setItem('xedoc-hands-avatar-head-roll-inverted', next ? 'on' : 'off')
+  avatarHeadRollInvertToggle.checked = next
+}
+
 function updateAvatarModelButtons(url: string | null) {
   avatarModelSelect.value = getAvatarModelPresetByUrl(url)?.id ?? ''
   avatarSampleButton.classList.toggle('is-active', url === defaultAvatarModelUrl)
@@ -5664,6 +5741,10 @@ function readAvatarHeadPitchScale() {
   const raw = localStorage.getItem('xedoc-hands-avatar-head-pitch-scale')
   const saved = raw === null ? Number.NaN : Number(raw)
   return Number.isFinite(saved) ? clamp(Math.round(saved), 50, 250) : 100
+}
+
+function readAvatarHeadInverted(axis: 'pitch' | 'yaw' | 'roll') {
+  return localStorage.getItem(`xedoc-hands-avatar-head-${axis}-inverted`) === 'on'
 }
 
 function readAvatarBackgroundImage() {
